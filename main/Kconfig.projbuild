@@ -1,0 +1,28 @@
+# Configuracion propia del proyecto (aparece en menuconfig > "Configuracion WiFi")
+menu "Configuracion WiFi"
+
+config ESP_WIFI_SSID
+    string "STA: SSID del router"
+    default "myssid"
+    help
+        Red a la que se conecta el ESP32 (modo estacion). Vacio = no se conecta.
+
+config ESP_WIFI_PASSWORD
+    string "STA: clave del router"
+    default "mypassword"
+    help
+        Clave WPA/WPA2 del router.
+
+config ESP_AP_SSID
+    string "AP: nombre de la red propia"
+    default "ESP32-Parcial"
+    help
+        Red que crea el ESP32 (modo punto de acceso). Su IP es 192.168.4.1.
+
+config ESP_AP_PASSWORD
+    string "AP: clave de la red propia"
+    default "12345678"
+    help
+        Minimo 8 caracteres (WPA2). Vacio = red abierta.
+
+endmenu

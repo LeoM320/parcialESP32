@@ -1,0 +1,147 @@
+body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: system-ui, sans-serif;
+    background: #f2f4f7;
+    color: #1d2330;
+}
+
+.tarjeta {
+    width: min(320px, calc(100% - 32px));
+    background: #fff;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+h1 {
+    margin-top: 0;
+    font-size: 1.3rem;
+    text-align: center;
+}
+
+h2 {
+    margin: 16px 0 8px;
+    font-size: 1rem;
+    color: #5f6675;
+}
+
+label {
+    display: block;
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+}
+
+input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 4px;
+    padding: 8px;
+    font-size: 1rem;
+    border: 1px solid #c4c9d4;
+    border-radius: 6px;
+}
+
+button {
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    background: #1a73e8;
+    color: #fff;
+    cursor: pointer;
+}
+
+button:disabled {
+    opacity: 0.6;
+}
+
+#mensaje {
+    min-height: 1.2em;
+    text-align: center;
+}
+
+.ok    { color: #1e8e3e; }
+.error { color: #c5221f; }
+
+/* Panel: grilla de ladrillos (cada uno ubicado en la fila/col que dice el ESP32) */
+.panel {
+    width: min(720px, calc(100% - 32px));
+}
+
+.grilla {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 12px;
+}
+
+.ladrillo {
+    padding: 12px;
+    border: 1px solid #c4c9d4;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.ladrillo h3 {
+    margin: 0 0 8px;
+    font-size: 0.9rem;
+    color: #5f6675;
+}
+
+.ladrillo p {
+    margin: 0;
+}
+
+.ladrillo button {
+    margin-top: 0;
+    background: #c4c9d4;
+    color: #1d2330;
+}
+
+.ladrillo button.encendido {
+    background: #1a73e8;
+    color: #fff;
+}
+
+/* din */
+.indicador {
+    padding: 10px;
+    border-radius: 8px;
+    background: #e3e6ec;
+}
+
+.indicador.encendido {
+    background: #1e8e3e;
+    color: #fff;
+}
+
+/* ain y pwm */
+.ladrillo progress,
+.ladrillo input[type=range] {
+    width: 100%;
+    margin: 4px 0 8px;
+}
+
+/* num y texto: campo + boton en una fila */
+.editar {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.editar input {
+    margin-top: 0;
+    min-width: 0;
+}
+
+.editar button {
+    width: auto;
+    background: #1a73e8;
+    color: #fff;
+}

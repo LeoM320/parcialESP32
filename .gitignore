@@ -1,0 +1,6 @@
+# Se genera al compilar (idf.py build)
+build/
+sdkconfig.old
+
+# Cache de Python
+__pycache__/

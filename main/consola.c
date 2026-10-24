@@ -6,43 +6,70 @@
 #include "consola.h"
 #include <stdarg.h>
 #include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "esp_err.h"
 #include "microrl.h"
 
 #define PRINTF_MAX  256     /* largo maximo de un consola_printf() */
 
-static microrl_t s_rl;
-static int (*s_ejecutar)(int, const char *const *) = NULL;
-static void (*s_enviar)(const char *texto) = NULL;
-static char s_anterior = 0;     /* ultimo byte recibido, para tomar \r\n como un solo Enter */
+struct consola {
+    microrl_t rl;
+    int (*ejecutar)(int, const char *const *);
+    void (*enviar)(const char *texto);
+    char anterior;          /* ultimo byte recibido, para tomar \r\n como un solo Enter */
+};
 
-void consola_init(int (*ejecutar)(int argc, const char *const *argv),
-                  void (*enviar)(const char *texto))
+static struct consola s_consolas[CONSOLA_MAX];
+static int s_cant = 0;
+
+/* Los comandos se ejecutan de a uno; s_actual es la consola que esta
+ * ejecutando, a donde van consola_printf() y consola_escribir(). */
+static SemaphoreHandle_t s_mutex = NULL;
+static consola_t *s_actual = NULL;
+
+consola_t *consola_crear(int (*ejecutar)(int argc, const char *const *argv),
+                         void (*enviar)(const char *texto))
 {
-    s_ejecutar = ejecutar;
-    s_enviar = enviar;
+    if (s_mutex == NULL) {
+        s_mutex = xSemaphoreCreateMutex();
+    }
+    if (s_cant >= CONSOLA_MAX) {
+        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
+    }
+    consola_t *c = &s_consolas[s_cant++];
+    c->ejecutar = ejecutar;
+    c->enviar = enviar;
+    return c;
 }
 
-void consola_inicio(void)
+void consola_inicio(consola_t *c)
 {
-    microrl_init(&s_rl, s_enviar);                  /* linea e historial vacios */
-    microrl_set_execute_callback(&s_rl, s_ejecutar);
-    s_anterior = 0;
-    microrl_insert_char(&s_rl, KEY_LF);             /* linea vacia: solo muestra el prompt */
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    microrl_init(&c->rl, c->enviar);                /* linea e historial vacios */
+    microrl_set_execute_callback(&c->rl, c->ejecutar);
+    c->anterior = 0;
+    microrl_insert_char(&c->rl, KEY_LF);            /* linea vacia: solo muestra el prompt */
+    xSemaphoreGive(s_mutex);
 }
 
-void consola_recibir(const char *datos, size_t largo)
+void consola_recibir(consola_t *c, const char *datos, size_t largo)
 {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_actual = c;
     for (size_t i = 0; i < largo; i++) {
         char ch = datos[i];
         /* microrl esta configurado con Enter = \n (_ENDL_LF). Las terminales mandan
          * \r (PuTTY), \n (Linux) o \r\n: los tres se toman como un solo Enter. */
         if (ch == '\r') {
-            microrl_insert_char(&s_rl, KEY_LF);
-        } else if (ch != '\n' || s_anterior != '\r') {
-            microrl_insert_char(&s_rl, ch);
+            microrl_insert_char(&c->rl, KEY_LF);
+        } else if (ch != '\n' || c->anterior != '\r') {
+            microrl_insert_char(&c->rl, ch);
         }
-        s_anterior = ch;
+        c->anterior = ch;
     }
+    s_actual = NULL;
+    xSemaphoreGive(s_mutex);
 }
 
 void consola_printf(const char *formato, ...)
@@ -52,10 +79,12 @@ void consola_printf(const char *formato, ...)
     va_start(args, formato);
     vsnprintf(texto, sizeof(texto), formato, args);
     va_end(args);
-    s_enviar(texto);
+    consola_escribir(texto);
 }
 
 void consola_escribir(const char *texto)
 {
-    s_enviar(texto);
+    if (s_actual != NULL) {             /* fuera de un comando no hay a quien */
+        s_actual->enviar(texto);
+    }
 }

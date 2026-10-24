@@ -17,7 +17,7 @@
  *
  * Llamar despues de wifi_init(), una sola vez.
  * @param puerto   Puerto a escuchar.
- * @param ejecutar Funcion de comandos (ver consola_init()).
+ * @param ejecutar Funcion de comandos (ver consola_crear()).
  */
 void consola_tcp_init(uint16_t puerto, int (*ejecutar)(int argc, const char *const *argv));
 

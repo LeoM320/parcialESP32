@@ -22,6 +22,7 @@
 #define RX_MAX      128
 
 static int s_cliente = -1;  /* socket del cliente, -1 = nadie */
+static consola_t *s_consola;
 
 /* Cola de 1 elemento: consola_tcp_puerto() la pisa con xQueueOverwrite y la
  * tarea la lee. Asi se pasa el puerto entre tareas sin variables compartidas. */
@@ -48,8 +49,8 @@ static void atender(int sock, uint16_t puerto)
     telnet_t telnet;
     s_cliente = sock;
     telnet_inicio(&telnet, sock);
-    enviar("\r\nConsola ESP32 - 'help' para ver los comandos\r\n");
-    consola_inicio();
+    enviar("\r\nConsola ESP32\r\n");
+    consola_inicio(s_consola);
 
     char buf[RX_MAX];
     while (!puerto_cambio(puerto)) {
@@ -57,7 +58,7 @@ static void atender(int sock, uint16_t puerto)
         if (n < 0) {
             break;                                      /* se desconecto */
         }
-        consola_recibir(buf, telnet_filtrar(&telnet, buf, n));
+        consola_recibir(s_consola, buf, telnet_filtrar(&telnet, buf, n));
     }
 
     s_cliente = -1;
@@ -88,7 +89,7 @@ static void tarea(void *arg)
 
 void consola_tcp_init(uint16_t puerto, int (*ejecutar)(int argc, const char *const *argv))
 {
-    consola_init(ejecutar, enviar);
+    s_consola = consola_crear(ejecutar, enviar);
     s_puerto = xQueueCreate(1, sizeof(uint16_t));
     xQueueOverwrite(s_puerto, &puerto);
     xTaskCreate(tarea, "consola_tcp", 4096, NULL, 5, NULL);

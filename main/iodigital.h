@@ -38,4 +38,20 @@ void entrada_init(gpio_num_t pin, gpio_pull_mode_t pull);
  */
 bool entrada_get(gpio_num_t pin);
 
+/**
+ * @brief Llama a una funcion (ISR) cuando la entrada cambia.
+ *
+ * La entrada tiene que estar configurada antes (entrada_init() o var_din()).
+ * La ISR corre en contexto de interrupcion: tiene que ser corta, marcada
+ * IRAM_ATTR y usar solo funciones ...FromISR (ej. xQueueSendFromISR,
+ * xSemaphoreGiveFromISR, xEventGroupSetBitsFromISR). Nada de printf, var_set
+ * ni ADC: avisarle a una tarea y que la tarea haga el trabajo.
+ * @param pin    GPIO de entrada.
+ * @param flanco GPIO_INTR_NEGEDGE (1 -> 0, ej. al apretar un pulsador con pull-up),
+ *               GPIO_INTR_POSEDGE (0 -> 1) o GPIO_INTR_ANYEDGE (los dos).
+ * @param isr    Funcion a llamar: void isr(void *arg).
+ * @param arg    Dato que recibe la ISR tal cual (ej. el numero de pulsador), o NULL.
+ */
+void entrada_interrupcion(gpio_num_t pin, gpio_int_type_t flanco, gpio_isr_t isr, void *arg);
+
 #endif /* IODIGITAL_H_ */

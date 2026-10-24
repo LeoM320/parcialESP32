@@ -35,7 +35,12 @@ typedef enum {
     VAR_VALOR_INVALIDO,     /**< El valor no corresponde al tipo o esta fuera de rango */
 } var_resultado_t;
 
-/** @brief Inicializa el registro. Llamar una vez, antes de registrar variables. */
+/**
+ * @brief Inicializa el registro (crea el mutex). Se puede llamar varias veces.
+ *
+ * No hace falta llamarla: la llaman el primer var_<tipo>() y sistema_init().
+ * Llamarla antes de crear tareas.
+ */
 void var_init(void);
 
 /**

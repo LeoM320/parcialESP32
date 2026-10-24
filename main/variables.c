@@ -105,6 +105,7 @@ static var_t *buscar(const char *id)
 
 static var_t *nueva(const char *id, const char *etiqueta, tipo_t tipo, int fila, int col)
 {
+    var_init();                             /* la primera vez crea el mutex */
     if (s_cant >= VAR_MAX) {
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);    /* subir VAR_MAX */
     }
@@ -217,6 +218,9 @@ static void agregar_valor_texto(texto_t *t, const var_t *v)
 
 void var_init(void)
 {
+    if (s_mutex != NULL) {
+        return;                 /* ya inicializado */
+    }
     s_mutex = xSemaphoreCreateMutex();
     if (s_mutex == NULL) {
         ESP_ERROR_CHECK(ESP_ERR_NO_MEM);

@@ -80,7 +80,7 @@ already initialize and ready to print message */
 
 /*
 New line symbol */
-#define _ENDL_LF
+#define _ENDL_CR	// Enter = \r (MobaXterm, PuTTY, idf.py monitor); el \n se ignora
 
 // Forzamos \r\n para retorno de carro y nueva línea en terminales serie
 #define ENDL "\r\n"

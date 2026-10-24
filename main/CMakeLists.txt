@@ -1,7 +1,7 @@
 idf_component_register(
-    SRCS main.c iodigital.c ianalogica.c pwm.c wifi.c web.c tcp.c memoria.c microrl.c consola.c telnet.c consola_tcp.c consola_uart.c variables.c json_mini.c sistema.c temporizador.c
+    SRCS main.c iodigital.c ianalogica.c pwm.c temporizador.c memoria.c wifi.c web.c tcp.c telnet.c microrl.c
     INCLUDE_DIRS "."
-    PRIV_REQUIRES esp_driver_gpio esp_driver_gptimer esp_driver_uart esp_adc esp_driver_mcpwm
+    PRIV_REQUIRES esp_driver_gpio esp_driver_gptimer esp_adc esp_driver_mcpwm
                   esp_wifi esp_netif esp_event nvs_flash esp_http_server spiffs lwip
 )
 

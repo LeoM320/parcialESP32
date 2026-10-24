@@ -6,7 +6,6 @@
 #include "web.h"
 #include <stdio.h>
 #include <string.h>
-#include "lwip/sockets.h"
 #include "esp_spiffs.h"
 #include "esp_log.h"
 
@@ -82,25 +81,6 @@ esp_err_t web_enviar_archivo(httpd_req_t *req, const char *nombre)
     return enviar_archivo(req, nombre, strlen(nombre));
 }
 
-uint32_t web_ip_local(httpd_req_t *req)
-{
-    struct sockaddr_storage dir;
-    socklen_t largo = sizeof(dir);
-    if (getsockname(httpd_req_to_sockfd(req), (struct sockaddr *)&dir, &largo) != 0) {
-        return 0;
-    }
-
-    uint32_t ip = 0;
-    if (dir.ss_family == AF_INET6) {
-        /* Con IPv6 activado httpd usa sockets IPv6: una IPv4 llega como
-         * ::ffff:a.b.c.d y la IPv4 son los ultimos 4 bytes */
-        memcpy(&ip, &((struct sockaddr_in6 *)&dir)->sin6_addr.s6_addr[12], sizeof(ip));
-    } else if (dir.ss_family == AF_INET) {
-        ip = ((struct sockaddr_in *)&dir)->sin_addr.s_addr;
-    }
-    return ip;
-}
-
 int web_leer_cuerpo(httpd_req_t *req, char *buf, size_t tamano)
 {
     if (req->content_len >= tamano) {
@@ -156,6 +136,15 @@ bool web_campo(const char *cuerpo, const char *clave, char *dest, size_t tamano)
     return true;
 }
 
+bool web_parametro(httpd_req_t *req, const char *clave, char *dest, size_t tamano)
+{
+    char query[CAMPO_CRUDO_MAX];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
+        return false;                   /* la URL no tiene "?..." (o es muy larga) */
+    }
+    return web_campo(query, clave, dest, tamano);
+}
+
 httpd_handle_t web_init(const httpd_uri_t *uris, size_t cantidad)
 {
     esp_vfs_spiffs_conf_t spiffs_cfg = {
@@ -169,8 +158,8 @@ httpd_handle_t web_init(const httpd_uri_t *uris, size_t cantidad)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;    // permite URIs con comodin: "/*"
     /* lwIP admite 10 sockets en total (CONFIG_LWIP_MAX_SOCKETS). El servidor usa
-     * 2 propios + uno por navegador conectado; con 4 navegadores quedan 4 para la
-     * consola TCP (escucha + 3 clientes). Si se llena, cierra la conexion mas vieja. */
+     * 2 propios + uno por navegador conectado; con 4 navegadores quedan 4 para
+     * tu servidor TCP. Si se llena, cierra la conexion mas vieja. */
     cfg.max_open_sockets = WEB_MAX_CONEXIONES;
     cfg.lru_purge_enable = true;
     if (cfg.max_uri_handlers < cantidad + 1) {

@@ -13,6 +13,8 @@
 
 /**
  * @brief Configura el pin como salida y lo deja en 0.
+ *
+ * Queda como entrada/salida, asi salida_get() puede leer en que estado esta.
  * @param pin GPIO a configurar.
  */
 void salida_init(gpio_num_t pin);
@@ -23,6 +25,13 @@ void salida_init(gpio_num_t pin);
  * @param nivel true = 1, false = 0.
  */
 void salida_set(gpio_num_t pin, bool nivel);
+
+/**
+ * @brief Lee en que estado esta una salida (para mostrarla o invertirla).
+ * @param pin GPIO previamente configurado con salida_init().
+ * @return true si esta en 1.
+ */
+bool salida_get(gpio_num_t pin);
 
 /**
  * @brief Configura el pin como entrada.
@@ -41,10 +50,10 @@ bool entrada_get(gpio_num_t pin);
 /**
  * @brief Llama a una funcion (ISR) cuando la entrada cambia.
  *
- * La entrada tiene que estar configurada antes (entrada_init() o var_din()).
+ * La entrada tiene que estar configurada antes con entrada_init().
  * La ISR corre en contexto de interrupcion: tiene que ser corta, marcada
  * IRAM_ATTR y usar solo funciones ...FromISR (ej. xQueueSendFromISR,
- * xSemaphoreGiveFromISR, xEventGroupSetBitsFromISR). Nada de printf, var_set
+ * xSemaphoreGiveFromISR, xEventGroupSetBitsFromISR). Nada de printf, mutex
  * ni ADC: avisarle a una tarea y que la tarea haga el trabajo.
  * @param pin    GPIO de entrada.
  * @param flanco GPIO_INTR_NEGEDGE (1 -> 0, ej. al apretar un pulsador con pull-up),

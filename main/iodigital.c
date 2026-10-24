@@ -9,7 +9,7 @@ void salida_init(gpio_num_t pin)
 {
     gpio_config_t cfg = {
         .pin_bit_mask = 1ULL << pin,
-        .mode         = GPIO_MODE_OUTPUT,
+        .mode         = GPIO_MODE_INPUT_OUTPUT,     /* salida que tambien se puede leer */
         .pull_up_en   = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type    = GPIO_INTR_DISABLE,
@@ -21,6 +21,11 @@ void salida_init(gpio_num_t pin)
 void salida_set(gpio_num_t pin, bool nivel)
 {
     gpio_set_level(pin, nivel);
+}
+
+bool salida_get(gpio_num_t pin)
+{
+    return gpio_get_level(pin);
 }
 
 void entrada_init(gpio_num_t pin, gpio_pull_mode_t pull)

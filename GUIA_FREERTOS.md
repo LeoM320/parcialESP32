@@ -1,9 +1,9 @@
 # Guía de FreeRTOS para el parcial (ESP32-S3, ESP-IDF v6.0.2)
 
 Todo lo de FreeRTOS que puede entrar, con ejemplos sobre **esta** placa (LEDs 4–7,
-pulsadores 11–14, potes 1–2) y **este** proyecto (`var_get` / `var_set`, consola,
-`temporizador_init`, `entrada_interrupcion`). Los ejemplos están compilados con el
-proyecto.
+pulsadores 11–14, potes 1–2) y **este** proyecto (`salida_set`, `entrada_get`,
+`analogica_get`, `execute` / `enviar` de `main.c`, `temporizador_init`,
+`entrada_interrupcion`). Los ejemplos están compilados con el proyecto.
 
 > Lo que pide el profe (criterios del TP2): *uso correcto de colas, semáforos/mutex,
 > prioridades de tareas, y ausencia de bloqueos mediante `vTaskDelay` no deterministas*.
@@ -41,7 +41,7 @@ proyecto.
 | Tick (`CONFIG_FREERTOS_HZ`) | **100 Hz → 1 tick = 10 ms** | `pdMS_TO_TICKS(5)` da **0**. Menos de 10 ms: usar `temporizador_init` (gptimer) o `esp_timer` |
 | Prioridades | 0 (IDLE) a 24 (`configMAX_PRIORITIES` = 25) | Número más alto = más prioridad |
 | Stack | en **bytes** (en FreeRTOS "puro" es en palabras) | `4096` = 4 KB |
-| `configMINIMAL_STACK_SIZE` | ~1,5 KB | Alcanza para una tarea que solo prende un LED. Con `printf`, `float` o `var_*`: **4096** |
+| `configMINIMAL_STACK_SIZE` | ~1,5 KB | Alcanza para una tarea que solo prende un LED. Con `printf`, `snprintf` o `float`: **4096** |
 | Watchdog de tareas | 5 s, vigila las tareas IDLE | Una tarea que nunca se bloquea deja sin CPU a IDLE → `Task watchdog got triggered` |
 | Desborde de stack | detectado (canary) | Panic con `stack overflow in task X` → subir el stack de esa tarea |
 
@@ -52,12 +52,13 @@ Tareas que ya corren en el sistema (para elegir tus prioridades):
 | IDLE0 / IDLE1 | 0 | ociosas, una por núcleo |
 | `Tmr Svc` | 1 | corre los callbacks de los timers de software (sección 8) |
 | `main` | 1 | `app_main`; termina al salir de `app_main` |
-| `consola_tcp`, `consola_uart`, `httpd` | 5 | consola y servidor web |
+| `task tcp` | 2 | tu consola TCP (en `main.c`) |
+| `httpd` | 5 | servidor web |
 | `esp_timer` | 22 | callbacks de `esp_timer` |
 | `wifi` | 23 | WiFi (no competir con ella) |
 
 **Regla práctica:** tus tareas entre **2 y 10**. Lo que tiene que responder rápido (control,
-muestreo) más alto que la consola (5); lo que es "de fondo" (logs, reportes) más bajo.
+muestreo) más alto que las consolas (2); lo que es "de fondo" (logs, reportes) más bajo.
 
 Includes que vas a usar:
 
@@ -94,7 +95,7 @@ static void tarea_led(void *arg)
     bool encendido = false;
     for (;;) {
         encendido = !encendido;
-        var_set(pin == LED2_GPIO ? "led2" : "led3", encendido ? "on" : "off");
+        salida_set(pin, encendido);
         vTaskDelay(pdMS_TO_TICKS(500));              // se bloquea: le deja la CPU a otras
     }
 }
@@ -115,7 +116,7 @@ El parámetro es un puntero: pasá un `struct` que **siga existiendo** mientras 
 
 ```c
 typedef struct {
-    const char *led;       // id de la variable
+    gpio_num_t led;
     uint32_t periodo_ms;
 } parpadeo_t;
 
@@ -125,14 +126,14 @@ static void tarea_parpadeo(void *arg)
     bool on = false;
     for (;;) {
         on = !on;
-        var_set(p->led, on ? "on" : "off");
+        salida_set(p->led, on);
         vTaskDelay(pdMS_TO_TICKS(p->periodo_ms));
     }
 }
 
 // la misma función, dos tareas distintas:
-static const parpadeo_t s_rapido = { "led2", 200 };
-static const parpadeo_t s_lento  = { "led3", 1000 };
+static const parpadeo_t s_rapido = { LED2_GPIO, 200 };
+static const parpadeo_t s_lento  = { LED3_GPIO, 1000 };
 xTaskCreate(tarea_parpadeo, "rapido", 4096, (void *)&s_rapido, 3, NULL);
 xTaskCreate(tarea_parpadeo, "lento",  4096, (void *)&s_lento,  3, NULL);
 ```
@@ -167,7 +168,7 @@ core 1 no compite con él. Para saber en qué núcleo está corriendo: `xPortGet
 static void tarea_saludo(void *arg)
 {
     vTaskDelay(pdMS_TO_TICKS(3000));
-    var_set("estado", "arrancado");
+    salida_set(LED4_GPIO, 1);       // "ya arranque"
     vTaskDelete(NULL);              // nunca "return" en una tarea
 }
 ```
@@ -229,10 +230,10 @@ static QueueHandle_t s_destinos;
 // crear (antes de crear las tareas que la usan):
 s_destinos = xQueueCreate(5, sizeof(destino_t));        // 5 lugares de destino_t
 
-// productor (ej. un comando de consola):
+// productor (ej. un comando de consola, dentro de execute()):
 destino_t d = { 120.0f, 45.0f };
 if (xQueueSend(s_destinos, &d, 0) != pdTRUE) {          // 0 = no esperar si está llena
-    consola_printf("ERROR: cola llena\r\n");
+    enviar("ERROR: cola llena\r\n");
 }
 
 // consumidor (tarea):
@@ -277,8 +278,7 @@ xQueueReceive(s_posicion, &angulo, portMAX_DELAY);
 xQueuePeek(s_posicion, &angulo, 0);
 ```
 
-Es lo que el TP2 llama `Queue_MasterPos` / `Queue_TargetPos`, y lo que usa
-`consola_tcp.c` para el puerto.
+Es lo que el TP2 llama `Queue_MasterPos` / `Queue_TargetPos`.
 
 ### Mandar texto por una cola
 
@@ -288,7 +288,7 @@ a un buffer local (cuando el receptor lo lea, ese buffer ya cambió).
 ```c
 typedef struct { char texto[32]; } mensaje_t;
 mensaje_t m;
-snprintf(m.texto, sizeof(m.texto), "pote %.1f", pot);
+snprintf(m.texto, sizeof(m.texto), "pote %d", analogica_get(POT1_GPIO));
 xQueueSend(s_mensajes, &m, 0);
 ```
 
@@ -315,9 +315,9 @@ static void tarea_espera(void *arg)
 {
     for (;;) {
         if (xSemaphoreTake(s_listo, pdMS_TO_TICKS(2000)) == pdTRUE) {
-            var_set("estado", "llego el aviso");
+            salida_set(LED4_GPIO, 0);           // llegó el aviso
         } else {
-            var_set("estado", "2 s sin aviso");     // timeout: también es información
+            salida_set(LED4_GPIO, 1);           // 2 s sin aviso: el timeout también es información
         }
     }
 }
@@ -339,7 +339,7 @@ if (xSemaphoreTake(s_canales, 0) == pdTRUE) {
     // ... usar un canal
     xSemaphoreGive(s_canales);                  // devolverlo
 } else {
-    consola_printf("ERROR: no hay canales libres\r\n");
+    enviar("ERROR: no hay canales libres\r\n");
 }
 
 uxSemaphoreGetCount(s_canales);                 // cuántos quedan
@@ -395,9 +395,12 @@ Reglas:
   `printf` largos ni esperar una cola con el mutex tomado.
 - Cada `Take` con su `Give`, también en los `return` de error.
 - Si una tarea necesita dos mutex, **todas** los toman en el mismo orden (si no: deadlock).
-- **No hace falta para lo del registro:** `var_get` / `var_set` ya tienen su mutex adentro.
-  Hace falta para **tus** variables compartidas entre tareas (y entre comandos de consola,
-  que corren en otra tarea).
+- Hace falta para **tus** variables compartidas entre tareas. Ojo que los comandos
+  (`execute()`) corren en `task tcp`, y los handlers web en la tarea del
+  servidor: si tocan las mismas variables que tus tareas, son tareas distintas.
+- Un `int` o `bool` suelto que una sola tarea escribe y otras leen no necesita mutex (en
+  32 bits se escribe de una vez). Un `struct`, un arreglo, o "leer-modificar-escribir"
+  (`contador++` desde dos tareas) sí.
 
 ### Mutex recursivo
 
@@ -459,7 +462,7 @@ static void tarea_led_modo(void *arg)
     for (;;) {
         // duerme mientras el modo esté apagado; pdFALSE: NO limpia el bit (es un modo)
         xEventGroupWaitBits(s_eventos, BIT_ESPEJO, pdFALSE, pdFALSE, portMAX_DELAY);
-        var_set("led2", "toggle");                      // parpadea mientras dure el modo
+        salida_set(LED2_GPIO, !salida_get(LED2_GPIO));  // parpadea mientras dure el modo
         vTaskDelay(pdMS_TO_TICKS(250));
     }
 }
@@ -509,7 +512,7 @@ static void tarea_adc(void *arg)
         // pdTRUE: pone el contador en 0 al salir (como semáforo binario)
         // pdFALSE: le resta 1 (como semáforo contador)
         uint32_t cuantos = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        // ... leer el ADC (cuantos = avisos acumulados desde la última vez)
+        int pot = analogica_get_crudo(POT1_GPIO);   // cuantos = avisos acumulados desde la última vez
     }
 }
 ```
@@ -553,7 +556,7 @@ static TimerHandle_t s_apagado;
  * (nada de vTaskDelay ni esperas largas: frena a todos los demás timers). */
 static void al_vencer_apagado(TimerHandle_t t)
 {
-    var_set("led4", "off");
+    salida_set(LED4_GPIO, 0);
 }
 
 // crear (en app_main):
@@ -577,7 +580,7 @@ xTimerIsTimerActive(s_apagado);     // pdTRUE si está corriendo
 
 ```c
 // cada vez que se aprieta SW1 (en la tarea del pulsador):
-var_set("led4", "on");
+salida_set(LED4_GPIO, 1);
 xTimerReset(s_apagado, 0);          // si no lo vuelven a apretar en 5 s → callback
 ```
 
@@ -586,11 +589,11 @@ xTimerReset(s_apagado, 0);          // si no lo vuelven a apretar en 5 s → cal
 ```c
 static void al_vencer_led(TimerHandle_t t)
 {
-    const char *led = pvTimerGetTimerID(t);     // el ID que se pasó al crearlo
-    var_set(led, "toggle");
+    gpio_num_t led = (gpio_num_t)(int)pvTimerGetTimerID(t);   // el ID que se pasó al crearlo
+    salida_set(led, !salida_get(led));
 }
-xTimerCreate("t2", pdMS_TO_TICKS(300), pdTRUE, (void *)"led2", al_vencer_led);
-xTimerCreate("t3", pdMS_TO_TICKS(700), pdTRUE, (void *)"led3", al_vencer_led);
+xTimerCreate("t2", pdMS_TO_TICKS(300), pdTRUE, (void *)LED2_GPIO, al_vencer_led);
+xTimerCreate("t3", pdMS_TO_TICKS(700), pdTRUE, (void *)LED3_GPIO, al_vencer_led);
 ```
 
 ### ¿Timer de software, `esp_timer` o timer de hardware?
@@ -599,7 +602,7 @@ xTimerCreate("t3", pdMS_TO_TICKS(700), pdTRUE, (void *)"led3", al_vencer_led);
 |---|---|---|---|
 | Resolución | 10 ms (tick) | 1 µs | 1 µs |
 | Callback corre en | tarea `Tmr Svc` (prio 1) | tarea `esp_timer` (prio 22) | **ISR** (solo `...FromISR`) |
-| Puede llamar `var_set` | sí (cortito) | sí (cortito) | **no**: avisar a una tarea |
+| Puede leer el ADC, `printf`, mutex | sí (cortito) | sí (cortito) | **no**: avisar a una tarea |
 | Uso típico | timeouts, parpadeos, apagados | períodos < 10 ms con callback normal | muestreo exacto, alta frecuencia |
 
 `esp_timer` periódico, por si hace falta:
@@ -619,8 +622,9 @@ esp_timer_start_periodic(t, 2000);          // en MICROsegundos
 Detalle completo en `GUIA.md` (recetas H e I). Lo esencial:
 
 1. La ISR es **corta**, marcada **`IRAM_ATTR`**, y usa **solo funciones `...FromISR`**.
-2. **Nunca** en una ISR: `printf`, `ESP_LOG`, `var_set`, `var_get`, ADC, `vTaskDelay`, tomar
-   un mutex, nada que espere.
+2. **Nunca** en una ISR: `printf`, `ESP_LOG`, ADC (`analogica_get` usa un mutex),
+   `vTaskDelay`, tomar un mutex, nada que espere. `salida_set` sí se puede (es un
+   `gpio_set_level`), pero igual conviene dejarle el trabajo a la tarea.
 3. La ISR **avisa**, una tarea **hace el trabajo**.
 4. El `despertada` (`BaseType_t`, arranca en `pdFALSE`): las funciones `FromISR` lo ponen en
    `pdTRUE` si despertaron a una tarea más prioritaria; entonces se pide el cambio de tarea
@@ -685,7 +689,7 @@ static uint32_t pulsos_leer_y_borrar(void)  // desde una tarea
 ```
 
 - Adentro: **solo unas pocas instrucciones**. Nada de funciones de FreeRTOS, `printf`, ni
-  `var_*`. Se bloquean las interrupciones: si tarda, salta el watchdog de interrupciones.
+  ADC. Se bloquean las interrupciones: si tarda, salta el watchdog de interrupciones.
 - Si no hay ISR de por medio (solo tareas), usá un **mutex**.
 - `volatile` le dice al compilador "esto cambia solo, no lo guardes en un registro". No
   reemplaza a la sección crítica: `s_pulsos++` igual son 3 pasos (leer, sumar, escribir).
@@ -722,7 +726,7 @@ static void tarea_log(void *arg)
 }
 ```
 
-Es lo que hace el `uart.c` del TP2 (`UART_EnviarCadenaAsincrona`): una tarea de control
+Es lo que hacía el `uart.c` del TP2 (`UART_EnviarCadenaAsincrona`): una tarea de control
 rápida no se frena esperando a que salgan los bytes por la UART.
 
 - **Un solo escritor y un solo lector.** Si escriben varias tareas, protegé el `Send` con un
@@ -733,8 +737,8 @@ rápida no se frena esperando a que salgan los bytes por la UART.
 
 ## 12. UART con cola de eventos
 
-La consola por UART0 ya está hecha (`consola_uart.c`, lectura simple). Si el profe pide
-**otra UART** (comunicarse con otro dispositivo, otro ESP32, un módulo) o "UART con eventos",
+El proyecto no usa UART (la consola es por TCP). Si el profe pide una
+**UART** (comunicarse con otro dispositivo, otro ESP32, un módulo) o "UART con eventos",
 el driver de ESP-IDF entrega los eventos por una **cola de FreeRTOS**:
 
 ```c
@@ -756,7 +760,7 @@ static void tarea_uart(void *arg)
         case UART_DATA: {                       // llegaron ev.size bytes
             int n = uart_read_bytes(UART_EXT, buf, sizeof(buf) - 1, 0);
             buf[n] = '\0';
-            // ... procesar (ej. var_set("estado", buf))
+            // ... procesar lo que llegó en buf
             break;
         }
         case UART_PATTERN_DET: {                // llegó el carácter de fin ('\n')
@@ -806,7 +810,7 @@ static void uart_ext_init(void)
 
 - Probar sin otro dispositivo: un cable de **GPIO 17 a GPIO 18** (loopback): lo que mandás
   te vuelve.
-- Requiere `esp_driver_uart` en `PRIV_REQUIRES` (ya está, por la consola UART).
+- Requiere `esp_driver_uart` en `PRIV_REQUIRES` (hoy no está: agregarlo).
 - Con detección de patrón, usá **o** `UART_DATA` **o** `UART_PATTERN_DET` para leer (si
   leés todo en `UART_DATA`, te comés el `\n` antes de que llegue el evento de patrón). Lo
   más simple: en `UART_DATA` no leer nada y leer solo en `UART_PATTERN_DET`.
@@ -834,17 +838,19 @@ UBaseType_t n = uxTaskGetNumberOfTasks();
 BaseType_t core = xPortGetCoreID();
 ```
 
-Un buen comando de consola para el parcial (`estado` o `info`):
+Un buen comando de consola para el parcial (`info`), dentro de `execute()`:
 
 ```c
-if (strcmp(argv[0], "info") == 0) {
-    consola_printf("tareas: %u  heap libre: %lu  minimo: %lu\r\n",
-                   (unsigned)uxTaskGetNumberOfTasks(),
-                   (unsigned long)esp_get_free_heap_size(),
-                   (unsigned long)esp_get_minimum_free_heap_size());
-    consola_printf("stack libre adc: %u bytes\r\n",
-                   (unsigned)uxTaskGetStackHighWaterMark(s_tarea_adc));
-    return true;
+} else if (strcmp(argv[0], "info") == 0) {
+    char txt[96];
+    snprintf(txt, sizeof(txt), "tareas: %u  heap libre: %lu  minimo: %lu\r\n",
+             (unsigned)uxTaskGetNumberOfTasks(),
+             (unsigned long)esp_get_free_heap_size(),
+             (unsigned long)esp_get_minimum_free_heap_size());
+    enviar(txt);
+    snprintf(txt, sizeof(txt), "stack libre adc: %u bytes\r\n",
+             (unsigned)uxTaskGetStackHighWaterMark(s_tarea_adc));
+    enviar(txt);
 }
 ```
 
@@ -859,8 +865,9 @@ if (strcmp(argv[0], "info") == 0) {
 
 ## 14. Patrones de ejercicio (combinados con WiFi)
 
-Estos son los esqueletos que más probablemente aparezcan. Todos se integran con el sistema:
-los comandos van en `comandos()`, lo que se ve en la web/Qt son variables del registro.
+Estos son los esqueletos que más probablemente aparezcan. Todos se integran con `main.c`:
+los comandos van en `execute()` (contestan con `enviar(...)`), y lo que querés
+ver en la web lo agregás al texto que arma `estado_get()`.
 
 ### A. Modos de funcionamiento por comando (event group)
 
@@ -871,6 +878,7 @@ los comandos van en `comandos()`, lo que se ve en la web/Qt son variables del re
 #define TODOS_LOS_MODOS (MODO_ESPEJO | MODO_GRABANDO | MODO_REPRODUCE)
 
 static EventGroupHandle_t s_modos;
+static const char *s_nombre_modo = "detenido";  // para mostrarlo en /estado
 
 static void cambiar_modo(EventBits_t modo, const char *nombre)
 {
@@ -878,33 +886,35 @@ static void cambiar_modo(EventBits_t modo, const char *nombre)
     if (modo != 0) {
         xEventGroupSetBits(s_modos, modo);
     }
-    var_set("estado", nombre);                  // se ve en la web y en Qt
+    s_nombre_modo = nombre;                     // un puntero: se escribe de una vez
 }
 
-// en comandos():
+// en execute():
 //   "modo espejo" → cambiar_modo(MODO_ESPEJO, "espejo");
 //   "modo stop"   → cambiar_modo(0, "detenido");
+// en estado_get():  "Modo: %s\n", s_nombre_modo
 
+// LED 1 como PWM: en init_hardware, pwm_init(LED_PWM_GPIO, LED_PWM_FREC_HZ)
+// en vez de salida_init (un pin no puede ser las dos cosas).
 static void tarea_espejo(void *arg)
 {
     for (;;) {
         xEventGroupWaitBits(s_modos, MODO_ESPEJO, pdFALSE, pdFALSE, portMAX_DELAY);
         TickType_t ultimo = xTaskGetTickCount();            // recién despertó
         while (xEventGroupGetBits(s_modos) & MODO_ESPEJO) {
-            float pot;
-            char txt[16];
-            var_get("pot1", &pot);
-            snprintf(txt, sizeof(txt), "%.0f", pot);
-            var_set("led1", txt);                           // pote → brillo
+            int pot = analogica_get_crudo(POT1_GPIO);       // 0..4095
+            pwm_set_duty(LED_PWM_GPIO, pot * 100.0f / 4095); // pote → brillo (0..100 %)
             xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(20));
         }
     }
 }
 ```
 
-Bonus: si querés que el modo también se pueda cambiar desde la web, registrá un `var_txt`
-o `var_num` "modo" y que una tarea lo mire; pero el comando de consola es lo que el profe
-suele pedir.
+> `analogica_get()` promedia 5 lecturas separadas 10 ms (tarda 50 ms): en una tarea de
+> 20 ms usá `analogica_get_crudo()` (una sola lectura) y filtrá vos (patrón C).
+
+Bonus: para cambiar el modo desde la web, un handler `/modo?m=espejo` que llame a
+`cambiar_modo()`, igual que `led_get()`.
 
 ### B. Comando → cola → tarea (la consola nunca se bloquea)
 
@@ -915,29 +925,27 @@ contesta al toque. Así la consola sigue respondiendo.
 typedef struct { float destino; uint32_t duracion_ms; } orden_t;
 static QueueHandle_t s_ordenes;                         // xQueueCreate(4, sizeof(orden_t))
 
-// en comandos():  "mover 80 2000"
-if (strcmp(argv[0], "mover") == 0) {
+// en execute():  "mover 80 2000"
+} else if (strcmp(argv[0], "mover") == 0) {
     if (argc != 3) {
-        consola_printf("uso: mover <0-100> <ms>\r\n");
-        return true;
-    }
-    orden_t o = { strtof(argv[1], NULL), strtoul(argv[2], NULL, 10) };
-    if (o.destino < 0 || o.destino > 100) {
-        consola_printf("ERROR: fuera de rango\r\n");
-    } else if (xQueueSend(s_ordenes, &o, 0) != pdTRUE) {
-        consola_printf("ERROR: ocupado\r\n");
+        enviar("uso: mover <0-100> <ms>\r\n");
     } else {
-        consola_printf("OK\r\n");
+        orden_t o = { strtof(argv[1], NULL), strtoul(argv[2], NULL, 10) };
+        if (o.destino < 0 || o.destino > 100) {
+            enviar("ERROR: fuera de rango\r\n");
+        } else if (xQueueSend(s_ordenes, &o, 0) != pdTRUE) {
+            enviar("ERROR: ocupado\r\n");
+        } else {
+            enviar("OK\r\n");
+        }
     }
-    return true;
 }
 
-// la tarea interpola linealmente de donde está al destino:
+// la tarea interpola linealmente de donde está al destino (LED 1 como PWM):
 static void tarea_mover(void *arg)
 {
     orden_t o;
     float actual = 0;
-    char txt[16];
     for (;;) {
         xQueueReceive(s_ordenes, &o, portMAX_DELAY);
         int pasos = o.duracion_ms / 20;
@@ -948,8 +956,7 @@ static void tarea_mover(void *arg)
         TickType_t ultimo = xTaskGetTickCount();
         for (int i = 1; i <= pasos; i++) {
             actual = inicio + (o.destino - inicio) * i / pasos;
-            snprintf(txt, sizeof(txt), "%.1f", actual);
-            var_set("led1", txt);
+            pwm_set_duty(LED_PWM_GPIO, actual);
             xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(20));
         }
     }
@@ -967,8 +974,7 @@ static void tarea_muestreo(void *arg)
     TickType_t ultimo = xTaskGetTickCount();
     for (;;) {
         xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(20));    // 50 Hz exactos
-        float crudo;
-        var_get("pot1", &crudo);
+        int crudo = analogica_get_crudo(POT1_GPIO);     // una lectura (0..4095)
         filtrado = 0.8f * filtrado + 0.2f * crudo;      // filtro pasa bajos (EMA)
         xQueueOverwrite(s_pot_filtrado, &filtrado);     // el consumidor ve siempre el último
     }
@@ -1018,9 +1024,9 @@ static void tarea_grabar(void *arg)
         while ((xEventGroupGetBits(s_modos) & MODO_GRABANDO) && s_cant_grabada < MUESTRAS_MAX) {
             xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(50));
             int64_t ahora = esp_timer_get_time();
-            muestra_t m = { .dt_ms = (ahora - antes) / 1000 };
+            muestra_t m = { .dt_ms = (ahora - antes) / 1000,
+                            .valor = analogica_get_crudo(POT1_GPIO) * 100.0f / 4095 };
             antes = ahora;
-            var_get("pot1", &m.valor);
             xSemaphoreTake(s_mutex_grab, portMAX_DELAY);
             s_grabacion[s_cant_grabada++] = m;
             xSemaphoreGive(s_mutex_grab);
@@ -1031,7 +1037,6 @@ static void tarea_grabar(void *arg)
 
 static void tarea_reproducir(void *arg)
 {
-    char txt[16];
     for (;;) {
         xEventGroupWaitBits(s_modos, MODO_REPRODUCE, pdFALSE, pdFALSE, portMAX_DELAY);
         xSemaphoreTake(s_mutex_grab, portMAX_DELAY);
@@ -1041,8 +1046,7 @@ static void tarea_reproducir(void *arg)
         // (cambiar_modo apaga GRABANDO), así que nadie escribe mientras se reproduce
         for (int i = 0; i < cant && (xEventGroupGetBits(s_modos) & MODO_REPRODUCE); i++) {
             vTaskDelay(pdMS_TO_TICKS(s_grabacion[i].dt_ms));   // respetar los tiempos grabados
-            snprintf(txt, sizeof(txt), "%.0f", s_grabacion[i].valor);
-            var_set("led1", txt);
+            pwm_set_duty(LED_PWM_GPIO, s_grabacion[i].valor);
         }
         cambiar_modo(0, "reproducido");
     }
@@ -1055,7 +1059,7 @@ precisión sin acumular error, guardá el tiempo absoluto desde el inicio y usá
 
 ### E. Pulsador por interrupción → notificación → acción
 
-Igual que la receta I de `GUIA.md` pero con notificación (un solo pulsador):
+Igual que la receta de pulsador de `GUIA.md` pero con notificación (un solo pulsador):
 
 ```c
 static TaskHandle_t s_tarea_boton;
@@ -1082,12 +1086,12 @@ static void tarea_boton(void *arg)
         }
         suelto = nivel;
         if (!nivel) {                           // recién apretado
-            var_set("led3", "toggle");
+            salida_set(LED3_GPIO, !salida_get(LED3_GPIO));
         }
     }
 }
 
-// app_main (después de sistema_init y con el pin registrado con var_din):
+// app_main (después de init_hardware, que ya configuró SW2 como entrada):
 xTaskCreate(tarea_boton, "boton", 4096, NULL, 6, &s_tarea_boton);    // ANTES de la interrupción
 entrada_interrupcion(SW2_GPIO, GPIO_INTR_ANYEDGE, al_apretar_sw2, NULL);
 ```
@@ -1115,25 +1119,31 @@ static void tarea_gatekeeper(void *arg)
 ### G. Alarma por umbral con histéresis
 
 ```c
+static int s_umbral = 2000;     // lo cambia un comando ("umbral 3000") o la web.
+                                // Un int lo escribe una sola tarea: no hace falta mutex.
+
 static void tarea_alarma(void *arg)
 {
     bool alarma = false;
     TickType_t ultimo = xTaskGetTickCount();
     for (;;) {
         xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(100));
-        float pot, consigna;
-        var_get("pot1", &pot);
-        var_get("consigna", &consigna);         // la cambian desde la web / Qt / consola
-        if (!alarma && pot > consigna + 2) {    // entra por arriba de consigna + 2
+        int pot = analogica_get(POT1_GPIO);         // promedio de 5 (tarda 50 ms, entra en 100)
+        int umbral = s_umbral;                      // copiarlo una vez por vuelta
+        if (!alarma && pot > umbral + 100) {        // entra por arriba de umbral + 100
             alarma = true;
-            var_set("led4", "on");
-            var_set("estado", "ALARMA");
-        } else if (alarma && pot < consigna - 2) {   // sale por debajo de consigna - 2
+            salida_set(LED4_GPIO, 1);
+        } else if (alarma && pot < umbral - 100) {  // sale por debajo de umbral - 100
             alarma = false;
-            var_set("led4", "off");
-            var_set("estado", "normal");
+            salida_set(LED4_GPIO, 0);
         }
     }
+}
+
+// en execute():  "umbral 3000"
+} else if (strcmp(argv[0], "umbral") == 0 && argc == 2) {
+    s_umbral = atoi(argv[1]);
+    enviar("OK\r\n");
 }
 ```
 
@@ -1230,7 +1240,7 @@ consume.
 | La tarea nunca corre | prioridad más baja que una que no se bloquea | revisar prioridades y bloqueos |
 | `vTaskDelay(pdMS_TO_TICKS(5))` no espera | con tick de 10 ms, 5 ms = 0 ticks | usar ≥ 10 ms, o timer de hardware / `esp_timer` |
 | El período se va corriendo | `vTaskDelay` en una tarea periódica | `xTaskDelayUntil` |
-| Crash en una ISR | `printf`, `var_set`, mutex o algo que no es `FromISR` dentro de la ISR | la ISR solo avisa; el trabajo en la tarea |
+| Crash en una ISR | `printf`, ADC, mutex o algo que no es `FromISR` dentro de la ISR | la ISR solo avisa; el trabajo en la tarea |
 | `xTimerChangePeriod` arrancó un timer que estaba parado | así funciona: cambiar el período lo arranca | llamar `xTimerStop` después si no lo querías andando |
 | Un dato de la cola llega "cambiado" | mandaste un puntero a un buffer que después se modificó | mandar el dato por copia (struct con arreglo) |
 | Se pierden avisos | semáforo binario o `ulTaskNotifyTake(pdTRUE)` cuando llegan varios | semáforo contador o `ulTaskNotifyTake(pdFALSE)` |
@@ -1246,4 +1256,4 @@ consume.
 - [ ] Colas, semáforos y event groups creados **antes** de las tareas que los usan.
 - [ ] Prioridades justificadas (control > consola > fondo) y stacks de 4096 con `printf`.
 - [ ] Los comandos validan `argc` y rangos, y contestan `ERROR: ...` si algo está mal.
-- [ ] Lo importante se ve en la web y en Qt (variables del registro, `estado`).
+- [ ] Lo importante se ve en la web (agregado a `estado_get()`).

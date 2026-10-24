@@ -106,15 +106,9 @@ static int ejecutar(int argc, const char *const *argv)
                        "                     dout   led2 on | off | toggle\r\n"
                        "                     pwm    led1 0..100\r\n"
                        "                     num    consigna 12.5\r\n"
-                       "                     texto  estado hola mundo\r\n"
-                       "  def              definicion de las variables en JSON (para la app)\r\n"
-                       "  valores          valores en JSON (para la app)\r\n");
+                       "                     texto  estado hola mundo\r\n");
     } else if (strcmp(argv[0], "vars") == 0) {
         responder(var_listar(s_resp, sizeof(s_resp)));
-    } else if (strcmp(argv[0], "def") == 0) {
-        responder(var_json_def(s_resp, sizeof(s_resp)));
-    } else if (strcmp(argv[0], "valores") == 0) {
-        responder(var_json_valores(s_resp, sizeof(s_resp)));
     } else {
         cmd_variable(argc, argv);
     }
@@ -271,11 +265,9 @@ void app_main(void)
     memoria_get_u16(CLAVE_PUERTO, &puerto);
     printf("Config de arranque: SSID \"%s\", puerto %u\n", ssid, puerto);
 
-    consola_init(ejecutar);
-
     wifi_init(CONFIG_ESP_AP_SSID, CONFIG_ESP_AP_PASSWORD, ssid, pass);
 
-    consola_tcp_init(puerto);                       /* despues de consola_init y wifi_init */
+    consola_tcp_init(puerto, ejecutar);             /* despues de wifi_init */
 
     web_init(endpoints, sizeof(endpoints) / sizeof(endpoints[0]));   /* despues: su handler usa consola_tcp_puerto */
 }

@@ -1,9 +1,9 @@
-"""Panel del ESP32 por TCP.
+"""Panel del ESP32 por HTTP (la misma API que usa la pagina web).
 Espejo de www/app.js: mismo algoritmo.
     1. Al conectar, pedir def y crear un ladrillo por variable en su fila/col.
     2. Polling de valores cada REFRESCO_MS.
     3. Al tocar un ladrillo: set y mostrar los valores que devuelve.
-Arriba: IP, puerto y Conectar.
+Arriba: IP y Conectar.
 
 Ejecutar:  python app.py   (o doble clic en abrir.bat)
 """
@@ -13,41 +13,34 @@ import sys
 from PySide6.QtCore import QRegularExpression, QSettings, QTimer
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtWidgets import (QApplication, QGridLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QMainWindow, QPushButton, QSpinBox,
-                               QVBoxLayout, QWidget)
+                               QLineEdit, QMainWindow, QPushButton, QVBoxLayout,
+                               QWidget)
 
-import conexion as cx
+from conexion import Conexion
 from ladrillos import crear_ladrillo
 
 REFRESCO_MS = 1000
-ERROR_MS = 4000         # cuanto se muestra un error del ESP32
+ERROR_MS = 4000         # cuanto se muestra un error (igual que en la web)
 
 IP_VALIDA = r"^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$"
 
-COLORES = {cx.DESCONECTADO: "#c5221f", cx.CONECTANDO: "#f9ab00", cx.CONECTADO: "#1e8e3e"}
+DESCONECTADO, CONECTANDO, CONECTADO = "desconectado", "conectando", "conectado"
+COLORES = {DESCONECTADO: "#c5221f", CONECTANDO: "#f9ab00", CONECTADO: "#1e8e3e"}
 
 
 class Ventana(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ESP32 - Panel")
-        self._config = QSettings("ParcialESP32", "Control")   # recuerda IP y puerto
-
-        self._conexion = cx.Conexion(self)
-        self._conexion.estado_cambiado.connect(self._al_cambiar_estado)
-        self._conexion.def_recibida.connect(self._armar_grilla)
-        self._conexion.valores_recibidos.connect(self._mostrar_valores)
-        self._conexion.error_recibido.connect(self._mostrar_error)
+        self._config = QSettings("ParcialESP32", "Control")   # recuerda la IP
+        self._conexion = Conexion(self)
+        self._estado = DESCONECTADO
 
         # ---- barra superior ----
         self._ip = QLineEdit(self._config.value("ip", "192.168.4.1"))
         self._ip.setPlaceholderText("IP del ESP32")
         self._ip.setValidator(QRegularExpressionValidator(QRegularExpression(IP_VALIDA)))
         self._ip.returnPressed.connect(self._al_tocar_boton)
-
-        self._puerto = QSpinBox()
-        self._puerto.setRange(1, 65535)
-        self._puerto.setValue(int(self._config.value("puerto", 1234)))
 
         self._boton = QPushButton("Conectar")
         self._boton.clicked.connect(self._al_tocar_boton)
@@ -61,8 +54,6 @@ class Ventana(QMainWindow):
         barra = QHBoxLayout()
         barra.addWidget(QLabel("IP:"))
         barra.addWidget(self._ip, 1)
-        barra.addWidget(QLabel("Puerto:"))
-        barra.addWidget(self._puerto)
         barra.addWidget(self._boton)
         barra.addWidget(self._led)
 
@@ -71,8 +62,10 @@ class Ventana(QMainWindow):
         self._grilla = QGridLayout(self._panel)
         self._ladrillos = {}        # id -> ladrillo
 
-        self._refresco = QTimer(self, interval=REFRESCO_MS)
-        self._refresco.timeout.connect(self._conexion.pedir_valores)
+        # Polling encadenado: el siguiente pedido se programa recien cuando
+        # termina el anterior (singleShot), asi no se acumulan si el ESP32 tarda
+        self._refresco = QTimer(self, singleShot=True, interval=REFRESCO_MS)
+        self._refresco.timeout.connect(self._refrescar)
 
         central = QWidget()
         columna = QVBoxLayout(central)
@@ -83,36 +76,66 @@ class Ventana(QMainWindow):
         self.setCentralWidget(central)
         self.resize(720, 460)
 
-        self._al_cambiar_estado(cx.DESCONECTADO, "Ingresa la IP y el puerto del ESP32")
+        self._cambiar(DESCONECTADO, "Ingresa la IP del ESP32")
 
     # ---------- conexion ----------
 
     def _al_tocar_boton(self):
-        if self._conexion.estado == cx.DESCONECTADO:
-            if not self._ip.hasAcceptableInput():
-                self._mensaje.setText("IP invalida")
-                return
-            self._config.setValue("ip", self._ip.text())
-            self._config.setValue("puerto", self._puerto.value())
-            self._conexion.conectar(self._ip.text(), self._puerto.value())
-        else:
-            self._conexion.desconectar()
+        if self._estado != DESCONECTADO:
+            self._cambiar(DESCONECTADO, "Desconectado")
+            return
+        if not self._ip.hasAcceptableInput():
+            self._mostrar_error("IP invalida")
+            return
+        self._config.setValue("ip", self._ip.text())
+        self._conexion.ip = self._ip.text()
+        self._cambiar(CONECTANDO, f"Conectando a {self._ip.text()}...")
+        self._conexion.definicion(self._al_conectar, self._al_no_conectar)
 
-    def _al_cambiar_estado(self, estado: str, mensaje: str):
-        desconectado = estado == cx.DESCONECTADO
+    def _al_conectar(self, definicion: dict):
+        if self._estado != CONECTANDO:      # tocaron Desconectar mientras esperaba
+            return
+        self._armar_grilla(definicion)
+        self._cambiar(CONECTADO, f"Conectado a {self._conexion.ip}")
+        self._refrescar()
+
+    def _al_no_conectar(self, mensaje: str):
+        if self._estado == CONECTANDO:
+            self._cambiar(DESCONECTADO, mensaje)
+
+    def _cambiar(self, estado: str, mensaje: str):
+        self._estado = estado
+        desconectado = estado == DESCONECTADO
         self._boton.setText("Conectar" if desconectado else "Desconectar")
         self._ip.setEnabled(desconectado)
-        self._puerto.setEnabled(desconectado)
-        self._panel.setEnabled(estado == cx.CONECTADO)
+        self._panel.setEnabled(estado == CONECTADO)
         self._led.setStyleSheet(f"color: {COLORES[estado]}; font-size: 18px;")
         self._estado_txt = mensaje
         self._mostrar_estado()
-
-        if estado == cx.CONECTADO:
-            self._conexion.pedir_def()      # la grilla se arma cuando llega
-            self._refresco.start()
-        else:
+        if desconectado:
             self._refresco.stop()
+
+    # ---------- polling y set ----------
+
+    def _refrescar(self):
+        self._conexion.valores(self._al_refrescar, self._al_fallar_refresco)
+
+    def _al_refrescar(self, valores: dict):
+        self._mostrar_valores(valores)
+        self._seguir()
+
+    def _al_fallar_refresco(self, mensaje: str):
+        self._mostrar_error(mensaje)
+        self._seguir()
+
+    def _seguir(self):
+        if self._estado == CONECTADO:
+            self._refresco.start()
+
+    def _set(self, id: str, valor):
+        self._conexion.set(id, valor, self._mostrar_valores, self._mostrar_error)
+
+    # ---------- mensajes ----------
 
     def _mostrar_estado(self):
         self._fin_error.stop()
@@ -120,7 +143,8 @@ class Ventana(QMainWindow):
         self._mensaje.setText(self._estado_txt)
 
     def _mostrar_error(self, texto: str):
-        """Error que respondio el ESP32 (ej. valor fuera de rango): en rojo un rato"""
+        """Error en rojo un rato. Si se repite (ej. sin conexion, en cada polling),
+        el timer vuelve a empezar: queda a la vista mientras siga fallando"""
         self._mensaje.setStyleSheet("color: #c5221f;")
         self._mensaje.setText(texto)
         self._fin_error.start()
@@ -132,7 +156,7 @@ class Ventana(QMainWindow):
             ladrillo.deleteLater()
         self._ladrillos.clear()
         for d in definicion["vars"]:
-            ladrillo = crear_ladrillo(d, self._conexion.set)
+            ladrillo = crear_ladrillo(d, self._set)
             self._grilla.addWidget(ladrillo, d["fila"], d["col"])
             self._ladrillos[d["id"]] = ladrillo
 
@@ -141,10 +165,6 @@ class Ventana(QMainWindow):
         for id, valor in valores.items():
             if id in self._ladrillos:
                 self._ladrillos[id].actualizar(valor)
-
-    def closeEvent(self, evento):
-        self._conexion.desconectar()
-        super().closeEvent(evento)
 
 
 if __name__ == "__main__":

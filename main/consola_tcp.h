@@ -1,12 +1,9 @@
 /**
  * @file consola_tcp.h
- * @brief Consola (consola.h) por TCP con Telnet, para varios clientes a la vez.
+ * @brief Consola (consola.h) por TCP con Telnet, para una terminal (MobaXterm, PuTTY).
  *
- * - Cada cliente (MobaXterm, la app Qt, ...) tiene su propia consola: su linea,
- *   su historial y sus respuestas. Lo que escribe uno no lo ve el otro.
- * - Los comandos de todos pasan por la misma funcion de comandos, de a uno.
- * - Si ya hay CONSOLA_TCP_CLIENTES conectados, al siguiente se le avisa que la
- *   consola esta llena y se lo desconecta.
+ * - Un cliente a la vez. Si se conecta otro, queda esperando hasta que el
+ *   primero se vaya.
  * - Un cliente que desaparece sin cerrar se libera en ~11 s (keepalive, tcp.h).
  */
 
@@ -15,18 +12,17 @@
 
 #include <stdint.h>
 
-#define CONSOLA_TCP_CLIENTES    3   /**< Clientes a la vez (cada uno usa una consola y un socket) */
-
 /**
- * @brief Crea las consolas de los clientes y arranca la tarea del servidor.
+ * @brief Prepara la consola y arranca la tarea del servidor.
  *
- * Llamar despues de consola_init() y wifi_init(), una sola vez.
- * @param puerto Puerto a escuchar.
+ * Llamar despues de wifi_init(), una sola vez.
+ * @param puerto   Puerto a escuchar.
+ * @param ejecutar Funcion de comandos (ver consola_init()).
  */
-void consola_tcp_init(uint16_t puerto);
+void consola_tcp_init(uint16_t puerto, int (*ejecutar)(int argc, const char *const *argv));
 
 /**
- * @brief Cambia el puerto: corta a todos los clientes y escucha en el nuevo.
+ * @brief Cambia el puerto: corta al cliente y escucha en el nuevo.
  *
  * Se puede llamar desde cualquier tarea (ej. un handler HTTP); no bloquea.
  * Se aplica en menos de 1 s.

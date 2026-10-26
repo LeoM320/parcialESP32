@@ -1,11 +1,25 @@
-ESP-IDF template app
-====================
+ParcialESP32
+============
 
-This is a template application to be used with [Espressif IoT Development Framework](https://github.com/espressif/esp-idf).
+Plantilla para el parcial de Sistemas Embebidos (UNER) en un ESP32-S3 con ESP-IDF v6.0.2 y
+FreeRTOS: librerías finitas en `main/` y todo el programa a la vista en `main/main.c`.
 
-Please check [ESP-IDF docs](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html) for getting started instructions.
+- Consola TCP (MobaXterm, puerto 1234) y por UART con microrl.
+- Página web desde `www/` con handlers en JSON (cJSON).
+- Cliente TCP con protocolo UNER.
+- NVS, GPIO, ADC, PWM, LED RGB y timer de hardware.
 
-*Code in this repository is in the Public Domain (or CC0 licensed, at your option.)
-Unless required by applicable law or agreed to in writing, this
-software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-CONDITIONS OF ANY KIND, either express or implied.*
+```
+idf.py build
+idf.py -p COM6 flash          # programa + www/
+idf.py -p COM6 monitor
+```
+
+| Archivo | Para qué |
+|---|---|
+| `GUIA.md` | el proyecto: mapa, consola, web, NVS, UNER, recetas, problemas comunes |
+| `GUIA_FREERTOS.md` | tareas, colas, mutex, event groups, ISR, patrones |
+| `GUIA_C.md` | C para embebidos |
+| `GUIA_UML.md` | diagramas de estados, secuencia, actividad y tareas |
+| `SIMULACRO_1.md` | parcial de práctica |
+| `practicas/` | ejemplos completos y probados para copiar |

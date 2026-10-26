@@ -3,10 +3,10 @@
 **Sistemas Embebidos · ESP32-S3 · FreeRTOS · ESP-IDF**
 **Tiempo: 3 horas · Total: 100 puntos (+10 de bonus)**
 
-**Permitido:** tus librerías (`main/`), tus guías (`GUIA.md`, `GUIA_FREERTOS.md`), tus ejemplos (`practicas/`), la documentación oficial de FreeRTOS y de ESP-IDF.
+**Permitido:** tus librerías (`main/`), tus guías (`GUIA.md`, `GUIA_FREERTOS.md`, `GUIA_C.md`, `GUIA_UML.md`), tus ejemplos (`practicas/`), la documentación oficial de FreeRTOS y de ESP-IDF.
 **No permitido:** IA.
 
-**Punto de partida:** el `main.c` pelado y el `www/index.html` pelado. Hacé todo en esos dos archivos.
+**Punto de partida:** el `main.c` de la plantilla con `CONSOLA_UART 0` y `CLIENTE_UNER 0` (este simulacro no usa UART ni UNER) y el `www/index.html` pelado. Hacé todo en esos dos archivos. Para comparar recién al terminar: `practicas/practicaParcial1.c` (y con UNER, `practicas/practicaParcial1Uner.c`).
 
 ---
 

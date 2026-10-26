@@ -293,8 +293,9 @@ En C no hay clases, pero cada **módulo** (`.c` + `.h`) se dibuja como una clase
  │ + salida_init()  │ │ - s_mutex        │ │ + memoria_init│ │ + web_init(uris, n) │
  │ + salida_set()   │ │ + analogica_init │ │ + get/set_str │ │ + web_leer_cuerpo() │
  │ + salida_get()   │ │ + analogica_get()│ │ + get/set_u16 │ ╰─────────────────────╯
- │ + entrada_...()  │ ╰──────────────────╯ ╰───────────────╯
- ╰──────────────────╯
+ │ + entrada_...()  │ ╰──────────────────╯ │ + get/set_i32 │
+ ╰──────────────────╯                      │ + get/set_blob│
+                                           ╰───────────────╯
 ```
 
 ---

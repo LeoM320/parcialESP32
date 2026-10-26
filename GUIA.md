@@ -1,10 +1,11 @@
 # Guía del proyecto ParcialESP32
 
 Esqueleto para el parcial: librerías finitas que **ponen en marcha** cada cosa (GPIO, ADC,
-PWM, timer, NVS, WiFi, servidor web, sockets TCP, microrl) y un `main.c` donde está
-**todo lo demás a la vista**: tus tareas, tus comandos y lo que hace la página web.
+PWM, timer, NVS, WiFi, servidor web, sockets TCP, microrl, protocolo UNER) y un `main.c`
+donde está **todo lo demás a la vista**: tus tareas, tus comandos y lo que hace la página web.
 
-Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`.
+Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`; para C,
+`GUIA_C.md`; para los diagramas, `GUIA_UML.md`.
 
 ---
 
@@ -15,13 +16,27 @@ Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`.
    Router ──WiFi── STA (IP del router, ej. 192.168.123.38)
    Celular ─WiFi── AP  "ESP32-Parcial" (192.168.4.1)
                     │
-                    ├─ HTTP :80  ── web.c ── archivos de www/ (index.html, wifi.html)
-                    │                     └─ tus handlers en main.c (hoy solo /wifi)
+                    ├─ HTTP :80  ── web.c ── archivos de www/ (index.html, wifi.html, estilos.css)
+                    │                     └─ tus handlers en main.c (/wifi, /destino)
                     │
-                    └─ TCP :1234 ── task_tcp (main.c) ── telnet ── microrl ──► execute() (main.c)
+                    ├─ TCP :1234 (servidor) ── task_tcp ── telnet ── microrl ──┐
+                    │                                                          ├─► execute() (main.c)
+                    ├─ UART0 (USB, COM6) ──── task_uart ──────────── microrl ──┘   (si CONSOLA_UART)
+                    │
+                    └─ TCP cliente ──► destino IP:puerto ── task_uner ── uner_rx_byte ──► procesar_uner()
+                                                                         (si CLIENTE_UNER)
 
-   USB (COM6): flashear y ver los logs (idf.py -p COM6 monitor)
+   USB (COM6): flashear, ver los logs (idf.py -p COM6 monitor) y, con CONSOLA_UART, la consola
 ```
+
+Los módulos se prenden y apagan arriba de `main.c`:
+
+```c
+#define CONSOLA_UART	1	// la consola microrl tambien por UART
+#define CLIENTE_UNER	1	// el ESP se conecta a destino IP:puerto y habla UNER
+```
+
+Con `0` el código de ese módulo no se compila (queda la consola TCP y la web solas).
 
 | Archivo | Qué hace | Funciones |
 |---|---|---|
@@ -31,16 +46,35 @@ Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`.
 | `pwm` | PWM (MCPWM) | `pwm_init`, `pwm_set_duty` (0–100 %), `pwm_set_pulso_us` (servos) |
 | `rgb` | LED RGB integrado (WS2812, GPIO48) con el componente `led_strip` | `rgb_init`, `rgb_set(r, g, b)` (0–255; con 5–30 alcanza) |
 | `temporizador` | interrupción periódica (gptimer) | `temporizador_init` |
-| `memoria` | NVS: guardar y leer datos que sobreviven al reinicio | `memoria_init`, `memoria_get/set_str`, `memoria_get/set_u16` |
+| `memoria` | NVS: guardar y leer datos que sobreviven al reinicio | `memoria_init`, `memoria_get/set_str`, `memoria_get/set_u16`, `memoria_get/set_i32`, `memoria_get/set_blob`, `memoria_borrar` |
 | `wifi` | AP + STA | `wifi_init`, `wifi_sta_conectar` |
 | `web` | servidor HTTP + archivos de `www/` | `web_init`, `web_parametro`, `web_leer_cuerpo`, `web_campo` |
-| `tcp` | sockets TCP | `tcp_servidor`, `tcp_aceptar`, `tcp_recibir`, `tcp_enviar` |
+| `tcp` | sockets TCP | servidor: `tcp_servidor`, `tcp_aceptar`; cliente: `tcp_conectar`; los dos: `tcp_recibir`, `tcp_enviar` |
 | `telnet` | que MobaXterm (Telnet) no duplique el eco | `telnet_inicio`, `telnet_filtrar` |
 | `microrl` + `config.h` | línea de comandos (la del profe) | `microrl_init`, `microrl_set_execute_callback`, `microrl_insert_char` |
-| **`main.c`** | **todo tu programa** | `app_main`, `task_tcp`, `execute`, `enviar`, handlers web |
-| `www/` | la página (HTML sin estilos) | `index.html` (vacía, para vos), `wifi.html` |
+| `uner` | tramas del protocolo UNER | `uner_armar`, `uner_rx_init`, `uner_rx_byte`, `uner_escribir16`, `uner_escribir32`, `uner_escribir_float`, `uner_leer16`, `uner_leer32`, `uner_leer_float` |
+| **`main.c`** | **todo tu programa** | `app_main`, `task_tcp`, `task_uart`, `task_uner`, `execute`, `enviar`, `procesar_uner`, `uner_mandar`, handlers web |
+| `www/` | la página | `index.html` (vacía, para vos), `wifi.html` (red + destino UNER), `estilos.css` (vacía, ver sección 5) |
 
-Cada `.h` tiene la documentación de sus funciones.
+Cada `.h` tiene la documentación de sus funciones (ejemplos de comentarios Doxygen en
+`practicas/ejemploDoxygen.h`).
+
+### Ejemplos en `practicas/` (todos compilan con las librerías actuales)
+
+| Archivo | Qué muestra |
+|---|---|
+| `implementacionUartMicrorl.c` | `main.c` completo: consola TCP + UART, comandos que reciben datos de cada tipo (entero, real, bool, texto, color, lista) y que mandan (`ver`, `json`), aviso a las dos consolas |
+| `implementacionTcpUner.c` (+ `.html`) | `main.c` completo: cliente UNER de la válvula (Actividad 3) + ejemplos A1..A7 de mandar y recibir u8, u16, i16, u32, float, texto y mixto |
+| `emulador_valvula.py` | la válvula en la PC, para probar UNER sin el equipo real (`python emulador_valvula.py`) |
+| `ejemploNvs.c` | guardar int, float, bool, texto y struct; contador de arranques; `GET/POST /config` |
+| `ejemploMicrorl.c`, `ejemploWeb.c`, `ejemploSetSend.c`, `ejemploWifiGet.c` | consola con cola y mutex, página con JSON, set/send, leer y escribir datos por la web |
+| `practicaParcial1.c`, `practicaParcial1Uner.c` | el simulacro resuelto, sin y con UNER |
+| `ejemploEstilos.css/.html`, `ejemploBootstrap.html`, `ejemploPropiedadesJs.html`, `elementos.html` | estilos propios, Bootstrap, cambiar colores y propiedades desde JS, todos los controles |
+| `ejemploC.c`, `ejemploDoxygen.h` | repaso de C y comentarios Doxygen |
+| `paginaPracticaParcial.c/.html`, `pruebas1.c` | piezas web del simulacro y tus pruebas |
+
+Para usar uno: copiarlo entero sobre `main/main.c` (o solo la parte marcada `>>>`), compilar
+y flashear. **Guardá antes tu `main.c`.**
 
 ---
 
@@ -54,14 +88,28 @@ memoria_get_str("ssid", ...);       // la red guardada (si nunca se guardó: la 
 memoria_get_str("pass", ...);
 wifi_init(AP_SSID, AP_PASS, ssid, pass);
 
+mutexConsola = xSemaphoreCreateMutex();             // objetos de FreeRTOS ANTES de quien los use
+#if CLIENTE_UNER
+mutexDestino = xSemaphoreCreateMutex();
+colaUner = xQueueCreate(10, sizeof(mensajeUner_t));
+memoria_get_str("dest_ip", ...);    // el destino UNER guardado
+memoria_get_u16("dest_port", ...);
+#endif
+
 web_init(uris, cantidad);           // servidor HTTP: tus handlers + archivos de www/
 
-xTaskCreate(task_tcp, ...);         // consola por TCP
+xTaskCreate(task_tcp, ...);         // consola por TCP            prioridad +2
+xTaskCreate(task_uart, ...);        // consola por UART           +2  (si CONSOLA_UART)
+xTaskCreate(task_uner, ...);        // cliente UNER               +3  (si CLIENTE_UNER)
 // ... tus tareas
 ```
 
-El orden importa en dos lugares: `memoria_init` antes de `wifi_init` (el WiFi usa la NVS) y
-`wifi_init` antes de `web_init` y `task_tcp` (los dos usan la red).
+El orden importa en tres lugares: `memoria_init` antes de `wifi_init` (el WiFi usa la NVS),
+`wifi_init` antes de `web_init` y las tareas (usan la red), y **mutex y colas antes** de las
+tareas y de `web_init` (los handlers ya pueden llegar).
+
+**Qué prioridad darle a cada tarea:** está la tabla en la cabecera de `main.c` (de +1 a +6
+según qué tan urgente es) y las del sistema en `GUIA_FREERTOS.md`, sección 0.
 
 ---
 
@@ -78,47 +126,69 @@ El orden importa en dos lugares: `memoria_init` antes de `wifi_init` (el WiFi us
 Guardar tus propios datos en NVS (ej. un umbral que no se pierda al reiniciar):
 
 ```c
-memoria_set_u16("umbral", 3000);            // guardar
-uint16_t umbral = 2000;                     // valor por defecto
-memoria_get_u16("umbral", &umbral);         // si no existe, queda el por defecto
+uint16_t umbral = 2000;                     // 1. variable con su valor por defecto
+memoria_get_u16("umbral", &umbral);         // 2. al arrancar: si no existe, queda el por defecto
+...
+umbral = nuevo;                             // 3. cuando el usuario lo cambia: validar y guardar
+memoria_set_u16("umbral", umbral);
 ```
 
-Las claves tienen hasta 15 caracteres. Para otros tipos, mirá `memoria.h` (o usá
-`nvs_set_i32` / `nvs_get_i32` de ESP-IDF directo).
+| Tipo | Guardar | Leer |
+|---|---|---|
+| texto | `memoria_set_str("nombre", nombre)` | `memoria_get_str("nombre", nombre, sizeof(nombre))` |
+| 0..65535 (y `bool` como 0/1) | `memoria_set_u16("puerto", p)` | `memoria_get_u16("puerto", &p)` |
+| `int` con signo | `memoria_set_i32("entero", n)` | `memoria_get_i32("entero", &n)` (`int32_t`) |
+| `float`, `struct`, arreglo | `memoria_set_blob("cfg", &cfg, sizeof(cfg))` | `memoria_get_blob("cfg", &cfg, sizeof(cfg))` |
+| borrar | `memoria_borrar("clave")` | |
+
+- Las claves tienen hasta 15 caracteres. Ya usadas: `ssid`, `pass`, `dest_ip`, `dest_port`.
+- Guardar **solo cuando el usuario cambia algo** (y si cambió): la flash se gasta y escribir
+  tarda unos ms. Nunca en un lazo periódico ni desde una ISR.
+- `idf.py flash` no borra lo guardado; `idf.py erase-flash` borra todo (también la red).
+- Ejemplo completo y probado: `practicas/ejemploNvs.c`.
 
 ---
 
-## 4. La consola TCP y `execute()`
+## 4. La consola (TCP y UART) y `execute()`
 
-Lo que escribís en la consola TCP termina en **`execute(argc, argv)`** de `main.c`, y vos
-contestás con **`enviar(texto)`**.
+Lo que escribís en cualquiera de las dos consolas termina en **`execute(argc, argv)`** de
+`main.c`, y vos contestás con **`enviar(texto)`**: la respuesta vuelve a la consola de donde
+vino el comando.
 
 ### Conectarse
 
-MobaXterm → *Session → Telnet* → la IP del ESP32 → puerto `1234`. Un cliente a la vez.
+- **TCP:** MobaXterm → *Session → Telnet* → la IP del ESP32 → puerto `1234`. Un cliente a la vez.
+- **UART** (`CONSOLA_UART 1`): opción A (la que viene), UART0 por el mismo USB: MobaXterm →
+  *Serial* → COM6 a 115200, o `idf.py -p COM6 monitor`. Los logs (`ESP_LOG`, `printf`) salen
+  mezclados con la consola. Opción B: UART1 en GPIO 17/18 con un CP2102 aparte (otro COM, sin
+  logs); se elige en las constantes `UART_CONSOLA` de `main.c`.
 
-(Por el USB, `idf.py -p COM6 monitor`, solo salen los logs del sistema: ahí no hay consola.
-Mientras algo tenga el COM6 abierto, **no se puede flashear**.)
+Mientras algo tenga el COM6 abierto (monitor, MobaXterm), **no se puede flashear**.
 
 ### El camino de una tecla
 
 ```
-task_tcp:  tcp_recibir() → telnet_filtrar() → microrl_insert_char()  (eco, edición, historial)
-                                                      │ al Enter
-                                                      ▼
-                                              execute(argc, argv)   ← TUS COMANDOS
-                                                      │
-                                                      ▼
-                                              enviar(texto) → tcp_enviar
+task_tcp:  tcp_recibir() → telnet_filtrar() ─┐
+task_uart: uart_read_bytes() ────────────────┤  toma mutexConsola y pone salida = enviar_tcp / enviar_uart
+                                             ▼
+                              microrl_insert_char()  (eco, edición, historial)
+                                             │ al Enter
+                                             ▼
+                                     execute(argc, argv)   ← TUS COMANDOS
+                                             │
+                                             ▼
+                                     enviar(texto) → salida(texto) → a la consola que escribió
 ```
 
 Microrl separa la línea en palabras: `argv[0]` es el comando, `argc` cuántas palabras hay.
-`enviar()` es también la función que usa microrl para el eco y el prompt.
+Cada consola tiene su propio `microrl_t` (`rl`, `rlUart`) y su función de eco
+(`enviar_tcp`, `enviar_uart`).
 
 ### Agregar un comando
 
-Hoy `execute()` no tiene ningún comando: a todo contesta `ERROR: comando desconocido`.
-Este es un ejemplo de cómo quedaría con tres:
+Hoy `execute()` trae solo los comandos de UNER (`destino`, `uner`, si `CLIENTE_UNER` es 1);
+a todo lo demás contesta `ERROR: comando desconocido`. Tus comandos van antes de ese
+mensaje. Este es un ejemplo de cómo quedaría con tres:
 
 ```c
 int execute(int argc, const char *const *argv)
@@ -164,8 +234,9 @@ Reglas:
 
 ### Concurrencia
 
-`execute()` corre en `task tcp`. Si un comando modifica datos que también usa otra tarea o
-un handler web (un `struct`, un arreglo, un contador), protegelos con un **mutex**
+`execute()` corre en `task tcp` o en `task uart`, nunca las dos a la vez (las separa
+`mutexConsola`). Si un comando modifica datos que también usa otra tarea o un handler web
+(un `struct`, un arreglo, un contador), protegelos con **su** mutex
 (`GUIA_FREERTOS.md`, sección 5).
 
 ---
@@ -180,9 +251,16 @@ un handler web (un `struct`, un arreglo, un contador), protegelos con un **mutex
 3. Si no hay handler para esa dirección, se busca un archivo con ese nombre en `www/`
    (si no existe: 404).
 
-Hoy `main.c` trae un solo handler, `wifi_post()` (`POST /wifi`, el formulario de
-`wifi.html`: guarda la red en NVS y se conecta). `index.html` está vacía: el resto lo
-agregás vos.
+Hoy `main.c` trae `wifi_post()` (`POST /wifi`, el formulario de `wifi.html`: guarda la red
+en NVS y se conecta) y, si `CLIENTE_UNER` es 1, `destino_get()` / `destino_post()`
+(`/destino`, la sección de destino UNER de `wifi.html`, que se oculta sola si no está).
+`index.html` está vacía: el resto lo agregás vos.
+
+**Estilos:** `www/estilos.css` está vacía y ninguna página la enlaza. Si los piden: pegar ahí
+`practicas/ejemploEstilos.css` (sin internet) o usar Bootstrap remoto (instrucciones adentro
+de `estilos.css`; necesita que el navegador tenga internet, en el AP del ESP no anda), y
+agregar `<link rel="stylesheet" href="/estilos.css">` en el `<head>` de cada página. Cambiar
+colores y clases desde JS: `practicas/ejemploPropiedadesJs.html`.
 
 ```
 index.html / wifi.html               main.c
@@ -192,7 +270,8 @@ fetch('/algo?x=1')       ──►  GET /algo?x=1  ──►  algo_get()   (lo e
 ```
 
 Los archivos de `www/` se graban en la flash con `idf.py flash` (partición SPIFFS). Si
-cambiás un `.html`, hay que volver a flashear.
+cambiás un `.html`, hay que volver a flashear. Más rápido: `idf.py -p COM6 storage-flash`
+graba solo `www/` y `idf.py -p COM6 app-flash` solo el programa.
 
 ### Agregar algo a la página
 
@@ -301,7 +380,7 @@ fetch('/config', {method:'POST',        ──►  web_leer_cuerpo + cJSON_Parse
 lo de adentro). El texto de `cJSON_PrintUnformatted` se libera con `free()`. Si te olvidás,
 cada pedido pierde memoria y la placa termina reiniciándose.
 
-#### Dos ayudas (copiarlas en `main.c`)
+#### Dos ayudas (ya están al final de `main.c`)
 
 ```c
 #include "cJSON.h"
@@ -841,27 +920,52 @@ pwm_init(GPIO_NUM_15, 50);
 pwm_set_pulso_us(GPIO_NUM_15, 1500);                // centro
 ```
 
-### D. Mandar algo al cliente TCP sin que lo pida
+### D. Mandar algo a la consola sin que lo pida
 
-`enviar(texto)` se puede llamar desde cualquier tarea: si no hay nadie conectado no hace
-nada. Ej. una alarma:
+`enviar()` es **solo para responder adentro de `execute()`** (manda a la consola que
+escribió el comando). Desde otra tarea (una alarma, un aviso):
 
-```c
-if (pot > umbral) {
-	enviar("ALARMA: pote sobre el umbral\r\n");
-}
-```
-
-Ojo: si otra tarea manda mientras `task tcp` contesta un comando, los textos se pueden
-mezclar. Si pasa, un mutex alrededor de `enviar()` o una tarea dueña del socket
-(gatekeeper, `GUIA_FREERTOS.md` 14.F).
+- Solo al cliente TCP: `enviar_tcp("ALARMA: pote sobre el umbral\r\n");` (si no hay nadie
+  conectado no hace nada).
+- A las dos consolas: copiar `consola_avisar()` de `practicas/implementacionUartMicrorl.c`
+  (toma `mutexConsola` para no cortar un comando a medio responder y manda a TCP y UART).
+  **No llamarla desde `execute()`**: el mutex ya está tomado y se traba. Si un comando tiene
+  que disparar un aviso, que le avise a la tarea (task notify), como el comando `avisar` de
+  ese ejemplo.
 
 ### E. Una UART (otro dispositivo)
 
-El proyecto no trae librería de UART. Si la piden, se usa el driver de ESP-IDF directo
-(`driver/uart.h`) y se agrega `esp_driver_uart` a `PRIV_REQUIRES` en `main/CMakeLists.txt`.
-Ejemplo completo, con cola de eventos: `GUIA_FREERTOS.md`, sección 12. Usá UART1 en pines
-libres (TX 17, RX 18); para probar sin otro dispositivo, un cable de GPIO 17 a GPIO 18.
+La consola UART de `main.c` es para una persona con una terminal. Para hablar con **otro
+dispositivo** (otro ESP32, un módulo) se usa el driver de ESP-IDF directo (`driver/uart.h`,
+ya incluido; `esp_driver_uart` ya está en `PRIV_REQUIRES`). Ejemplo completo, con cola de
+eventos: `GUIA_FREERTOS.md`, sección 12. Usá UART1 en pines libres (TX 17, RX 18): **son los
+mismos que la opción B de la consola UART**, no usar las dos cosas a la vez. Para probar sin
+otro dispositivo, un cable de GPIO 17 a GPIO 18.
+
+### F. Cliente UNER (otro equipo por TCP)
+
+Con `CLIENTE_UNER 1`, `task_uner` se conecta al destino (`wifi.html`, comando
+`destino <ip> <puerto>` o lo guardado en NVS) y reintenta sola si se corta.
+
+```
+Trama:  'U' 'N' 'E' 'R' | LEN | ':' | carga[0] = comando, carga[1..] = datos | XOR
+        LEN = largo de la carga + 1. Números de varios bytes: little-endian (primero el byte bajo).
+```
+
+- **Recibir:** cada trama válida llega a `procesar_uner(carga, n)` en `main.c`: un `switch`
+  por `carga[0]` y los datos con `uner_leer16`, `uner_leer32` o `uner_leer_float(&carga[i])`.
+- **Mandar:** desde cualquier tarea o comando, `uner_mandar(carga, n)` (la encola; la manda
+  `task_uner`, la única que escribe en el socket). Armar la carga con
+  `uner_escribir16`, `uner_escribir32` o `uner_escribir_float(&carga[i], valor)`.
+- **Probar:** consola `uner D1 2A` manda una trama; `destino` muestra el estado y la última
+  trama recibida. Sin el equipo real: `python practicas/emulador_valvula.py` en la PC.
+- `UNER_PERIODO_MS`, `UNER_CMD_PERIODICO` y `UNER_LATIDO_MS` (constantes de `main.c`): pedir
+  algo cada X ms y marcar falla si no responde. Ejemplos de todos los tipos de dato y la
+  válvula completa: `practicas/implementacionTcpUner.c`.
+
+**¿Se mezcla con la consola TCP?** No. La consola es un **servidor** (el ESP escucha en su
+puerto 1234) y UNER es un **cliente** (el ESP se conecta a la PC). Son dos sockets, dos
+tareas y dos buffers; aunque el destino también use el puerto 1234, no chocan (probado).
 
 ---
 
@@ -878,6 +982,10 @@ libres (TX 17, RX 18); para probar sin otro dispositivo, un cable de GPIO 17 a G
 | `Guru Meditation` al usar una cola | la cola se usó antes de crearla | crear colas/semáforos antes de las tareas e interrupciones |
 | `stack overflow in task` | stack chico (`printf`, `snprintf`) | 4096 o más |
 | `fatal error: X.h: No such file` | falta el componente en `main/CMakeLists.txt` | agregarlo a `PRIV_REQUIRES` (ej. `esp_timer`) |
+| Copié un ejemplo sobre `main.c` y sigue corriendo lo viejo | la copia conservó la fecha vieja y `idf.py build` no recompiló | abrir `main.c`, guardarlo y compilar de nuevo (o `idf.py fullclean`) |
+| UNER no conecta (`destino` dice `conectado: false`) | IP/puerto mal, el programa de la PC no está escuchando o el firewall de Windows lo bloquea | revisar con `destino`; permitir Python/el programa en el firewall |
+| La consola UART muestra logs mezclados | opción A: UART0 es la misma del monitor | es normal; para separarlos, opción B (UART1 + CP2102) |
+| Se traba la consola al avisar | se llamó `consola_avisar()` desde `execute()` | avisar a otra tarea (task notify) y que ella mande |
 
 ---
 
@@ -892,3 +1000,7 @@ libres (TX 17, RX 18); para probar sin otro dispositivo, un cable de GPIO 17 a G
 | Navegadores a la vez | 4 | `WEB_MAX_CONEXIONES` en `web.c` |
 | Timers de hardware | 4 | `TEMPORIZADOR_MAX` |
 | Muestras que toma `analogica_get` (descarta la menor y la mayor) | 5 (tarda 50 ms, minimo 3) | `ANALOGICA_MUESTRAS` en `ianalogica.h` |
+| Carga de una trama UNER | 64 bytes | `UNER_MAX_CARGA` en `uner.h` |
+| Tramas UNER esperando para salir | 10 | `xQueueCreate(10, ...)` de `colaUner` en `main.c` |
+| Espera de `tcp_conectar` | 3 s | `CONECTAR_ESPERA_MS` en `tcp.c` |
+| Clave de NVS | 15 caracteres | (fijo de ESP-IDF) |

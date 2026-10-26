@@ -53,12 +53,16 @@ Tareas que ya corren en el sistema (para elegir tus prioridades):
 | `Tmr Svc` | 1 | corre los callbacks de los timers de software (sección 8) |
 | `main` | 1 | `app_main`; termina al salir de `app_main` |
 | `task tcp` | 2 | tu consola TCP (en `main.c`) |
-| `httpd` | 5 | servidor web |
+| `task uart` | 2 | tu consola UART (en `main.c`, si `CONSOLA_UART`) |
+| `task uner` | 3 | tu cliente UNER (en `main.c`, si `CLIENTE_UNER`) |
+| `httpd` | 5 | servidor web (los handlers corren acá) |
+| `tiT` | 18 | lwIP, la pila TCP/IP |
 | `esp_timer` | 22 | callbacks de `esp_timer` |
 | `wifi` | 23 | WiFi (no competir con ella) |
 
-**Regla práctica:** tus tareas entre **2 y 10**. Lo que tiene que responder rápido (control,
+**Regla práctica:** tus tareas entre **1 y 10**. Lo que tiene que responder rápido (control,
 muestreo) más alto que las consolas (2); lo que es "de fondo" (logs, reportes) más bajo.
+La escala completa (+1 a +6, qué va en cada una y por qué) está en la cabecera de `main.c`.
 
 Includes que vas a usar:
 
@@ -202,7 +206,7 @@ for (;;) {
 
 **Resolución:** con tick de 10 ms, los períodos son múltiplos de 10 ms. Para 1 ms o
 para muestrear a frecuencia exacta: timer de hardware (`temporizador_init`, sección 9 y
-receta H de `GUIA.md`). Convertir:
+receta 6.A de `GUIA.md`). Convertir:
 
 ```c
 pdMS_TO_TICKS(250)          // ms → ticks (25)
@@ -488,7 +492,8 @@ xEventGroupSync(s_eventos, LLEGO_B, TODAS, portMAX_DELAY);
 // ninguna sigue hasta que llegaron las dos
 ```
 
-Desde una ISR: `xEventGroupSetBitsFromISR(eg, bits, &despertada)` (lo usa la receta H).
+Desde una ISR: `xEventGroupSetBitsFromISR(eg, bits, &despertada)` (no lo hace en el momento: se lo pasa a
+la tarea `Tmr Svc`, así que llega un poco después; si es urgente, mejor una notificación).
 
 ---
 
@@ -619,7 +624,7 @@ esp_timer_start_periodic(t, 2000);          // en MICROsegundos
 
 ## 9. Interrupciones (ISR)
 
-Detalle completo en `GUIA.md` (recetas H e I). Lo esencial:
+Detalle completo en `GUIA.md` (recetas 6.A timer y 6.B pulsador). Lo esencial:
 
 1. La ISR es **corta**, marcada **`IRAM_ATTR`**, y usa **solo funciones `...FromISR`**.
 2. **Nunca** en una ISR: `printf`, `ESP_LOG`, ADC (`analogica_get` usa un mutex),
@@ -737,9 +742,11 @@ rápida no se frena esperando a que salgan los bytes por la UART.
 
 ## 12. UART con cola de eventos
 
-El proyecto no usa UART (la consola es por TCP). Si el profe pide una
-**UART** (comunicarse con otro dispositivo, otro ESP32, un módulo) o "UART con eventos",
-el driver de ESP-IDF entrega los eventos por una **cola de FreeRTOS**:
+`main.c` ya trae una consola por UART (`CONSOLA_UART`, lee con `uart_read_bytes`, sin
+eventos: es para una persona con una terminal). Si el profe pide una **UART** para
+comunicarse con otro dispositivo (otro ESP32, un módulo) o "UART con eventos", el driver de
+ESP-IDF entrega los eventos por una **cola de FreeRTOS**. Ojo: UART1 en 17/18 son los mismos
+pines que la opción B de la consola UART; no usar las dos a la vez.
 
 ```c
 #include "driver/uart.h"

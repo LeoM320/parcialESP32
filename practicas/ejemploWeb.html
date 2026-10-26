@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">                                    <!-- acentos y simbolos bien -->
+<meta name="viewport" content="width=device-width">       <!-- que se vea bien en el celular -->
+<title>ESP32</title>                                      <!-- texto de la pestania -->
+</head>
+<body>
+<h1>ESP32</h1>
+
+<!-- Los id son iguales a los nombres del JSON de /estado: actualizar() los llena solo -->
+
+<h2>Potenciometros</h2>
+<p>Pote 1: <span id="pot1">?</span> <progress id="barra1" max="4095"></progress></p>
+<p>Pote 2: <span id="pot2">?</span> <progress id="barra2" max="4095"></progress></p>
+
+<h2>LEDs</h2>
+<p>LED 1: <span id="led1">?</span> <button onclick="toggle()">Toggle</button></p>
+<p>LED 2: <span id="led2">?</span>
+   <button onclick="enviar('/led', {n: 2, v: true})">ON</button>
+   <button onclick="enviar('/led', {n: 2, v: false})">OFF</button></p>
+<p>LED 3: <span id="led3">?</span> (se prende solo si el pote 1 pasa el umbral)</p>
+<p>LED 4: <span id="led4">?</span>
+   <button onclick="enviar('/led', {n: 4, v: true})">ON</button>
+   <button onclick="enviar('/led', {n: 4, v: false})">OFF</button></p>
+
+<h2>Umbral</h2>
+<p>Actual: <span id="umbral">?</span></p>
+<p><input id="nuevoUmbral" type="number" min="0" max="4095" value="2000">
+   <button onclick="enviar('/config', {umbral: Number(nuevoUmbral.value)})">Guardar</button></p>
+
+<p><a href="/wifi.html">Configurar WiFi</a></p>
+
+<script>
+// GET /led1: el ESP invierte el LED 1 y responde {"led1":true}
+function toggle() {
+	fetch('/led1')
+		.then(r => r.json())
+		.then(d => led1.textContent = d.led1 ? 'ON' : 'OFF');
+}
+
+// POST con un objeto JSON: enviar('/led', {n: 2, v: true})
+function enviar(direccion, objeto) {
+	return fetch(direccion, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(objeto)              // objeto -> texto '{"n":2,"v":true}'
+	}).then(r => r.json());
+}
+
+// GET /estado cada 500 ms: cada campo del JSON va al elemento con el mismo id
+function actualizar() {
+	fetch('/estado')
+		.then(r => r.json())
+		.then(d => {
+			for (const k in d) {                  // k = "pot1", "led1", "umbral"...
+				const el = document.getElementById(k);
+				if (el) {
+					// true/false se muestran como ON/OFF; los numeros tal cual
+					el.textContent = (typeof d[k] === 'boolean') ? (d[k] ? 'ON' : 'OFF') : d[k];
+				}
+			}
+			barra1.value = d.pot1;                // las barras van aparte (otro id)
+			barra2.value = d.pot2;
+		})
+		.catch(() => pot1.textContent = 'sin conexion');
+}
+setInterval(actualizar, 500);
+actualizar();                                     // la primera vez, sin esperar
+</script>
+</body>
+</html>

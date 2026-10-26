@@ -867,7 +867,7 @@ Un buen comando de consola para el parcial (`info`), dentro de `execute()`:
 
 Estos son los esqueletos que más probablemente aparezcan. Todos se integran con `main.c`:
 los comandos van en `execute()` (contestan con `enviar(...)`), y lo que querés
-ver en la web lo agregás al texto que arma `estado_get()`.
+ver en la web lo devolvés con un handler tipo `/estado` (`GUIA.md`, sección 5).
 
 ### A. Modos de funcionamiento por comando (event group)
 
@@ -892,7 +892,7 @@ static void cambiar_modo(EventBits_t modo, const char *nombre)
 // en execute():
 //   "modo espejo" → cambiar_modo(MODO_ESPEJO, "espejo");
 //   "modo stop"   → cambiar_modo(0, "detenido");
-// en estado_get():  "Modo: %s\n", s_nombre_modo
+// en tu handler /estado:  "Modo: %s\n", s_nombre_modo
 
 // LED 1 como PWM: en init_hardware, pwm_init(LED_PWM_GPIO, LED_PWM_FREC_HZ)
 // en vez de salida_init (un pin no puede ser las dos cosas).
@@ -910,11 +910,11 @@ static void tarea_espejo(void *arg)
 }
 ```
 
-> `analogica_get()` promedia 5 lecturas separadas 10 ms (tarda 50 ms): en una tarea de
+> `analogica_get()` toma 5 lecturas separadas 10 ms y promedia las 3 del medio (tarda 50 ms): en una tarea de
 > 20 ms usá `analogica_get_crudo()` (una sola lectura) y filtrá vos (patrón C).
 
 Bonus: para cambiar el modo desde la web, un handler `/modo?m=espejo` que llame a
-`cambiar_modo()`, igual que `led_get()`.
+`cambiar_modo()`, igual que el `led_get()` de ejemplo en `GUIA.md` sección 5.
 
 ### B. Comando → cola → tarea (la consola nunca se bloquea)
 
@@ -1128,7 +1128,7 @@ static void tarea_alarma(void *arg)
     TickType_t ultimo = xTaskGetTickCount();
     for (;;) {
         xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(100));
-        int pot = analogica_get(POT1_GPIO);         // promedio de 5 (tarda 50 ms, entra en 100)
+        int pot = analogica_get(POT1_GPIO);         // 5 muestras, sin extremos (tarda 50 ms, entra en 100)
         int umbral = s_umbral;                      // copiarlo una vez por vuelta
         if (!alarma && pot > umbral + 100) {        // entra por arriba de umbral + 100
             alarma = true;
@@ -1256,4 +1256,4 @@ consume.
 - [ ] Colas, semáforos y event groups creados **antes** de las tareas que los usan.
 - [ ] Prioridades justificadas (control > consola > fondo) y stacks de 4096 con `printf`.
 - [ ] Los comandos validan `argc` y rangos, y contestan `ERROR: ...` si algo está mal.
-- [ ] Lo importante se ve en la web (agregado a `estado_get()`).
+- [ ] Lo importante se ve en la web (un handler tipo `/estado`).

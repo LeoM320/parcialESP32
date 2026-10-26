@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Propiedades desde JS</title>
+<!-- En www/ seria href="/estilos.css" (con el contenido de ejemploEstilos.css) -->
+<link rel="stylesheet" href="ejemploEstilos.css">
+<style>
+/* Solo para esta pagina: lo que usan los ejemplos de abajo */
+.led {							/* indicador redondo tipo LED */
+	display: inline-block;
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	background: #9aa4b1;		/* apagado: gris */
+	vertical-align: middle;
+	transition: background 0.2s, box-shadow 0.2s;	/* cambio suave */
+}
+.led.prendido {
+	background: #2ea043;
+	box-shadow: 0 0 10px #2ea043;	/* brillo alrededor */
+}
+.barraPropia {					/* barra hecha con dos div: se cambia el ancho del de adentro */
+	height: 20px;
+	background: #e1e5ea;
+	border-radius: 8px;
+	overflow: hidden;
+}
+.barraPropia > div {
+	height: 100%;
+	width: 0%;
+	background: #1f6feb;
+	transition: width 0.3s;		/* la barra "camina" en vez de saltar */
+}
+.aguja {						/* para rotar: una flecha */
+	display: inline-block;
+	font-size: 40px;
+	transition: transform 0.3s;
+}
+.resaltado {
+	outline: 3px solid #bf8700;
+}
+.parpadea {
+	animation: parpadeo 0.6s infinite;
+}
+pre.codigo {					/* el codigo de cada ejemplo, mas chico */
+	font-size: 0.75em;
+	tab-size: 2;				/* tabs mas cortos: lineas menos anchas */
+	max-height: none;
+}
+</style>
+</head>
+<body>
+<h1>Cambiar propiedades desde JavaScript</h1>
+<p>Abrila con doble clic en la PC. Cada ejemplo tiene una demo y abajo <b>el codigo exacto</b> que
+se ejecuta. En la pagina real, el valor sale del fetch: <code>.then(d => { ... d.pot1 ... })</code>.</p>
+
+<p>Para agarrar un elemento: <code>document.getElementById('pot1')</code> (o directamente
+<code>pot1</code>, el id funciona como variable). <b>OJO:</b> si hay una funcion o variable con
+el mismo nombre que el id, gana la funcion: <code>id="led"</code> + <code>function led()</code>
+rompe todo. Por eso aca los ids son ej1, ej2... y las funciones ejemplo1, ejemplo2...</p>
+
+<p>Valor de prueba para todos:
+<input id="valor" type="range" min="0" max="100" value="50" oninput="todos()">
+<span id="valorTxt" class="valor">50</span></p>
+
+<section>
+	<h2>1. Texto</h2>
+	<p>Nivel: <span id="ej1">?</span> &nbsp; Detalle: <span id="ej1b"></span></p>
+	<pre class="codigo" id="c1"></pre>
+</section>
+
+<section>
+	<h2>2. Color segun el valor (umbrales)</h2>
+	<p>Nivel: <span id="ej2" class="valor">?</span></p>
+	<pre class="codigo" id="c2"></pre>
+</section>
+
+<section>
+	<h2>3. Color gradual (verde -> amarillo -> rojo) y fondo</h2>
+	<p><span id="ej3" class="valor" style="padding: 4px 12px; border-radius: 8px; color: white">?</span></p>
+	<pre class="codigo" id="c3"></pre>
+</section>
+
+<section>
+	<h2>4. Mostrar / ocultar</h2>
+	<div id="ej4" class="alarma" style="display:none">ALARMA: valor mayor a 80</div>
+	<p id="ej4b">Todo normal</p>
+	<pre class="codigo" id="c4"></pre>
+</section>
+
+<section>
+	<h2>5. Barra de progreso (ancho en %)</h2>
+	<div class="barraPropia"><div id="ej5"></div></div>
+	<progress id="ej5b" max="100"></progress>
+	<pre class="codigo" id="c5"></pre>
+</section>
+
+<section>
+	<h2>6. Indicador LED (clases: add / remove / toggle)</h2>
+	<p><span id="led1" class="led"></span> LED 1 (prende con valor &gt; 50)
+	   &nbsp; <span id="led2" class="led"></span> LED 2 <button onclick="ejemplo6b()">Cambiar LED 2</button></p>
+	<pre class="codigo" id="c6"></pre>
+</section>
+
+<section>
+	<h2>7. Boton ON / OFF que cambia texto y color</h2>
+	<button id="ej7" class="peligro" onclick="ejemplo7()">Apagado</button>
+	<pre class="codigo" id="c7"></pre>
+</section>
+
+<section>
+	<h2>8. Deshabilitar mientras espera la respuesta</h2>
+	<button id="ej8" onclick="ejemplo8()">Guardar</button> <span id="ej8b"></span>
+	<pre class="codigo" id="c8"></pre>
+</section>
+
+<section>
+	<h2>9. Validar un campo: borde rojo, mensaje y foco</h2>
+	<p>Umbral (0..100): <input id="ej9" type="number" placeholder="0..100">
+	   <button onclick="ejemplo9()">Aplicar</button> <span id="ej9b"></span></p>
+	<pre class="codigo" id="c9"></pre>
+</section>
+
+<section>
+	<h2>10. Leer y escribir controles (value, checked, selectedIndex)</h2>
+	<p><input id="ej10a" type="number" value="25">
+	   <label><input id="ej10b" type="checkbox"> activo</label>
+	   <select id="ej10c"><option value="auto">auto</option><option value="manual">manual</option></select>
+	   <button onclick="ejemplo10()">Leer</button>
+	   <button onclick="ejemplo10w()">Cargar como si viniera del ESP</button></p>
+	<p id="ej10r"></p>
+	<pre class="codigo" id="c10"></pre>
+</section>
+
+<section>
+	<h2>11. Girar / tamaño / transparencia (style.transform, fontSize, opacity)</h2>
+	<p><span id="ej11" class="aguja">&#10148;</span>
+	   <span id="ej11b">Texto que crece</span></p>
+	<pre class="codigo" id="c11"></pre>
+</section>
+
+<section>
+	<h2>12. Parpadear y avisar en la pestania (alarma)</h2>
+	<p><span id="ej12" class="estado">normal</span> (parpadea con valor &gt; 80, mira el titulo de la pestania)</p>
+	<pre class="codigo" id="c12"></pre>
+</section>
+
+<section>
+	<h2>13. Confirmar antes de algo peligroso</h2>
+	<button class="peligro" onclick="ejemplo13()">Reiniciar placa</button> <span id="ej13b"></span>
+	<pre class="codigo" id="c13"></pre>
+</section>
+
+<section>
+	<h2>14. Enter manda, sin tocar el boton (eventos de teclado)</h2>
+	<p><input id="ej14" type="text" placeholder="escribi y apreta Enter" onkeydown="ejemplo14(event)">
+	   <span id="ej14b"></span></p>
+	<pre class="codigo" id="c14"></pre>
+</section>
+
+<section>
+	<h2>15. Cambiar el color de TODA la pagina (variable CSS)</h2>
+	<p>Color principal: <input id="ej15" type="color" value="#1f6feb" oninput="ejemplo15()">
+	   <button>Un boton</button></p>
+	<pre class="codigo" id="c15"></pre>
+</section>
+
+<section>
+	<h2>16. Resaltar un rato y desplazarse hasta un elemento</h2>
+	<button onclick="ejemplo16()">Ir a la seccion 2 y resaltarla</button>
+	<pre class="codigo" id="c16"></pre>
+</section>
+
+<script>
+/* ---------- 1. Texto ---------- */
+function ejemplo1(v) {
+	document.getElementById('ej1').textContent = v + ' %';		// textContent: solo texto (seguro)
+	ej1b.innerHTML = 'valor <b>' + v + '</b>';					// innerHTML: interpreta etiquetas
+}
+
+/* ---------- 2. Color por umbrales ---------- */
+function ejemplo2(v) {
+	ej2.textContent = v;
+	if (v > 80) {
+		ej2.style.color = 'red';
+	} else if (v > 50) {
+		ej2.style.color = 'orange';
+	} else {
+		ej2.style.color = 'green';
+	}
+	// En una linea: ej2.style.color = v > 80 ? 'red' : 'green';
+}
+
+/* ---------- 3. Color gradual ---------- */
+function ejemplo3(v) {
+	const tono = 120 - v * 1.2;					// hsl: 120 = verde, 60 = amarillo, 0 = rojo
+	ej3.style.backgroundColor = 'hsl(' + tono + ', 70%, 40%)';
+	ej3.textContent = v + ' %';
+}
+
+/* ---------- 4. Mostrar / ocultar ---------- */
+function ejemplo4(v) {
+	ej4.style.display = v > 80 ? 'block' : 'none';		// 'none' = oculto; '' = como era
+	ej4b.hidden = v > 80;								// otra forma: atributo hidden
+}
+
+/* ---------- 5. Barras ---------- */
+function ejemplo5(v) {
+	ej5.style.width = v + '%';							// div: el ancho como texto con %
+	ej5.style.backgroundColor = v > 80 ? '#cf222e' : '#1f6feb';
+	ej5b.value = v;										// <progress>: propiedad value
+}
+
+/* ---------- 6. LED con clases ---------- */
+function ejemplo6(v) {
+	if (v > 50) {
+		led1.classList.add('prendido');					// agrega la clase (el CSS lo pinta)
+	} else {
+		led1.classList.remove('prendido');
+	}
+	// En una linea: led1.classList.toggle('prendido', v > 50);
+}
+function ejemplo6b() {
+	led2.classList.toggle('prendido');					// si la tiene la saca, si no la pone
+	// Preguntar: led2.classList.contains('prendido')  -> true / false
+}
+
+/* ---------- 7. Boton ON / OFF ---------- */
+let encendido = false;
+function ejemplo7() {
+	encendido = !encendido;
+	ej7.textContent = encendido ? 'Encendido' : 'Apagado';
+	ej7.className = encendido ? 'ok' : 'peligro';		// className: reemplaza TODAS las clases
+	// En la real: enviar('/led', {v: encendido});
+}
+
+/* ---------- 8. Deshabilitar mientras espera ---------- */
+function ejemplo8() {
+	ej8.disabled = true;								// no se puede apretar dos veces
+	ej8.textContent = 'Guardando...';
+	ej8b.textContent = '';
+	setTimeout(() => {									// en la real: dentro del .then() del fetch
+		ej8.disabled = false;
+		ej8.textContent = 'Guardar';
+		ej8b.textContent = 'Guardado';
+		ej8b.className = 'exito';
+	}, 1000);
+}
+
+/* ---------- 9. Validar ---------- */
+function ejemplo9() {
+	const n = Number(ej9.value);						// "" -> 0, "abc" -> NaN
+	if (ej9.value === '' || isNaN(n) || n < 0 || n > 100) {
+		ej9.style.borderColor = 'red';
+		ej9b.textContent = 'Tiene que ser 0..100';
+		ej9b.className = 'error';
+		ej9.focus();									// deja el cursor en el campo
+		ej9.select();									// y selecciona lo escrito
+		return;
+	}
+	ej9.style.borderColor = '';							// '' = vuelve al estilo del CSS
+	ej9b.textContent = 'Aplicado: ' + n;
+	ej9b.className = 'exito';
+}
+
+/* ---------- 10. Leer y escribir controles ---------- */
+function ejemplo10() {
+	const numero = Number(ej10a.value);					// value siempre es texto: Number() para numero
+	const activo = ej10b.checked;						// checkbox: true / false
+	const modo = ej10c.value;							// select: el value de la opcion elegida
+	ej10r.textContent = JSON.stringify({numero: numero, activo: activo, modo: modo});
+}
+function ejemplo10w() {
+	const d = {numero: 80, activo: true, modo: 'manual'};	// como si fuera la respuesta del fetch
+	ej10a.value = d.numero;
+	ej10b.checked = d.activo;
+	ej10c.value = d.modo;								// elige la opcion con ese value
+	ejemplo10();
+}
+
+/* ---------- 11. Girar, tamanio, transparencia ---------- */
+function ejemplo11(v) {
+	ej11.style.transform = 'rotate(' + (v * 1.8 - 90) + 'deg)';	// 0 -> -90 grados, 100 -> +90
+	ej11b.style.fontSize = (12 + v / 4) + 'px';
+	ej11b.style.opacity = 0.3 + v / 140;				// 0 = invisible, 1 = normal
+}
+
+/* ---------- 12. Parpadear y titulo ---------- */
+function ejemplo12(v) {
+	const alarma = v > 80;
+	ej12.textContent = alarma ? 'ALARMA' : 'normal';
+	ej12.className = alarma ? 'estado falla parpadea' : 'estado ok';
+	document.title = alarma ? '(!) ALARMA' : 'Propiedades desde JS';	// se ve en la pestania
+}
+
+/* ---------- 13. Confirmar ---------- */
+function ejemplo13() {
+	if (!confirm('Seguro que queres reiniciar la placa?')) {	// Cancelar -> false
+		ej13b.textContent = 'cancelado';
+		return;
+	}
+	ej13b.textContent = 'reiniciando...';				// en la real: enviar('/reiniciar', {})
+}
+
+/* ---------- 14. Enter ---------- */
+function ejemplo14(evento) {
+	if (evento.key === 'Enter') {
+		ej14b.textContent = 'mandado: ' + ej14.value;	// en la real: enviar(...)
+		ej14.value = '';								// vaciar el campo
+	}
+}
+
+/* ---------- 15. Variable CSS ---------- */
+function ejemplo15() {
+	// ejemploEstilos.css usa var(--primario) en botones, sliders y links: cambia todo junto
+	document.documentElement.style.setProperty('--primario', ej15.value);
+}
+
+/* ---------- 16. Resaltar y desplazar ---------- */
+function ejemplo16() {
+	const s = ej2.closest('section');					// la seccion que contiene a ej2
+	s.scrollIntoView({behavior: 'smooth'});				// baja/sube hasta ella
+	s.classList.add('resaltado');
+	setTimeout(() => s.classList.remove('resaltado'), 1500);
+}
+
+/* ---------- Mover el slider de arriba actualiza todos ---------- */
+function todos() {
+	const v = Number(valor.value);
+	valorTxt.textContent = v;
+	ejemplo1(v); ejemplo2(v); ejemplo3(v); ejemplo4(v); ejemplo5(v); ejemplo6(v); ejemplo11(v); ejemplo12(v);
+}
+
+/* Muestra el codigo de cada funcion debajo de su ejemplo (es el mismo que corre) */
+const fs = [ejemplo1, ejemplo2, ejemplo3, ejemplo4, ejemplo5, [ejemplo6, ejemplo6b], ejemplo7, ejemplo8, ejemplo9, [ejemplo10, ejemplo10w], ejemplo11, ejemplo12, ejemplo13, ejemplo14, ejemplo15, ejemplo16];
+fs.forEach((f, i) => {
+	const lista = Array.isArray(f) ? f : [f];
+	document.getElementById('c' + (i + 1)).textContent = lista.map(x => x.toString()).join('\n\n');
+});
+todos();
+</script>
+</body>
+</html>

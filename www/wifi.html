@@ -7,11 +7,67 @@
 </head>
 <body>
 <h1>Configurar WiFi</h1>
+<!-- Al tocar Guardar, el navegador manda POST /wifi con el cuerpo "ssid=...&pass=..."
+     (los name de cada input). Lo atiende wifi_post() en main.c -->
 <form method="POST" action="/wifi">
-<p>Red (SSID): <input name="ssid" maxlength="32" required></p>
-<p>Clave: <input name="pass" type="password" maxlength="64"></p>
+<p>Red (SSID): <input name="ssid" maxlength="32" required></p>          <!-- required: no deja mandarlo vacio -->
+<p>Clave: <input name="pass" type="password" maxlength="64"></p>       <!-- password: muestra puntitos -->
 <p><button type="submit">Guardar</button></p>
 </form>
+<!-- Destino TCP (cliente UNER). Arranca oculta: aparece sola si main.c tiene
+     CLIENTE_UNER 1 (si no, GET /destino no existe y queda escondida). -->
+<div id="seccionDestino" style="display:none">
+<h1>Destino TCP</h1>
+<p>IP: <input id="ip" maxlength="15" placeholder="192.168.1.50"> (vacia = sin destino)</p>
+<p>Puerto: <input id="puerto" type="number" min="1" max="65535"></p>
+<p><button onclick="guardarDestino()">Guardar destino</button> <span id="resultado"></span></p>
+<p>Estado: <span id="estado">-</span> &nbsp; Ultima trama: <span id="ultima">-</span></p>
+</div>
+
 <p><a href="/">Volver</a></p>
+
+<script>
+/* GET /destino: si responde, mostrar la seccion y completar los campos */
+fetch('/destino').then(r => {
+	if (!r.ok) {
+		throw 0;							// 404: CLIENTE_UNER esta en 0
+	}
+	return r.json();
+}).then(d => {
+	document.getElementById('seccionDestino').style.display = '';
+	document.getElementById('ip').value = d.ip;
+	document.getElementById('puerto').value = d.puerto || '';
+	actualizarDestino();
+	setInterval(actualizarDestino, 1000);
+}).catch(() => {});
+
+function guardarDestino() {
+	fetch('/destino', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			ip: document.getElementById('ip').value,
+			puerto: Number(document.getElementById('puerto').value)	// Number(): que vaya como numero
+		})
+	}).then(r => r.json()).then(d => {
+		document.getElementById('resultado').textContent = d.ok ? 'Guardado' : d.error;
+	});
+}
+
+function actualizarDestino() {
+	fetch('/destino').then(r => r.json()).then(d => {
+		let estado = 'desconectado';
+		if (d.ip === '') {
+			estado = 'sin destino';
+		} else if (d.conectado) {
+			estado = 'conectado';
+		} else if (d.falla) {
+			estado = 'FALLA: sin respuesta';
+		}
+		document.getElementById('estado').textContent = estado;
+		document.getElementById('ultima').textContent = d.ultima || '-';
+	});
+}
+</script>
 </body>
 </html>

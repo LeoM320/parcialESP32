@@ -1,0 +1,315 @@
+/* ejemploEstilos.css: estilos propios, SIN internet (todo sale del ESP).
+ *
+ * Le da estilo a los elementos tal como estan (h1, p, button, input, table...): alcanza
+ * con enlazar la hoja, no hace falta agregar clases. Las clases de abajo (.valor, .estado,
+ * .alarma...) son opcionales, para lo que quieras resaltar.
+ *
+ * Para usarlo: pegar este contenido en www/estilos.css y en el <head> de cada pagina:
+ *     <link rel="stylesheet" href="/estilos.css">
+ * Demo de todos los elementos: practicas/ejemploEstilos.html (abrir con doble clic).
+ *
+ * Como se lee una regla:   selector { propiedad: valor; }
+ *     button            todos los <button>
+ *     .valor            los que tienen class="valor"
+ *     #pot1             el que tiene id="pot1"
+ *     button:disabled   los botones deshabilitados (pseudo-clase)
+ */
+
+/* ---------- Colores en un solo lugar: cambiar aca cambia toda la pagina ---------- */
+:root {
+	--fondo: #f2f4f7;
+	--tarjeta: #ffffff;
+	--texto: #1f2933;
+	--suave: #6b7785;			/* textos secundarios */
+	--borde: #d5dae1;
+	--primario: #1f6feb;		/* botones, links, sliders */
+	--ok: #1a7f37;				/* verde: conectado, guardado */
+	--peligro: #cf222e;			/* rojo: alarma, error, falla */
+	--aviso: #bf8700;			/* amarillo: atencion */
+	--radio: 8px;				/* esquinas redondeadas */
+}
+
+/* ---------- General ---------- */
+* {
+	box-sizing: border-box;		/* el ancho incluye el padding: no se desbordan las cajas */
+}
+
+body {
+	margin: 0 auto;
+	max-width: 720px;			/* en PC no se estira de punta a punta */
+	padding: 16px;
+	background: var(--fondo);
+	color: var(--texto);
+	font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+	font-size: 16px;
+	line-height: 1.5;
+}
+
+h1 {
+	font-size: 1.6em;
+	margin: 0 0 16px;
+}
+
+h2 {
+	font-size: 1.2em;
+	margin: 0 0 12px;
+}
+
+h3 {
+	font-size: 1em;
+	margin: 12px 0 8px;
+	color: var(--suave);
+}
+
+p {
+	margin: 8px 0;
+}
+
+a {
+	color: var(--primario);
+}
+
+/* section y form como "tarjetas": cajas blancas separadas */
+section,
+form {
+	background: var(--tarjeta);
+	border: 1px solid var(--borde);
+	border-radius: var(--radio);
+	padding: 16px;
+	margin-bottom: 16px;
+}
+
+section form {					/* un form dentro de una section no lleva otra caja */
+	border: none;
+	padding: 0;
+	margin: 0;
+}
+
+/* ---------- Datos que muestra la pagina ---------- */
+
+/* Numero grande: <span id="pot1" class="valor">1234</span> */
+.valor {
+	font-size: 1.4em;
+	font-weight: bold;
+	font-variant-numeric: tabular-nums;		/* los numeros no "bailan" al cambiar */
+}
+
+/* Etiqueta de estado: <span class="estado ok">conectado</span>
+ * Desde JS: elemento.className = 'estado ' + (d.conectado ? 'ok' : 'falla'); */
+.estado {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 999px;		/* pastilla */
+	font-size: 0.9em;
+	font-weight: bold;
+	background: var(--borde);
+	color: var(--texto);
+}
+
+.estado.ok {
+	background: var(--ok);
+	color: white;
+}
+
+.estado.falla {
+	background: var(--peligro);
+	color: white;
+}
+
+.estado.aviso {
+	background: var(--aviso);
+	color: white;
+}
+
+/* Caja de alarma: <div id="alarma" class="alarma" style="display:none">...</div> */
+.alarma {
+	background: #ffebe9;
+	border: 2px solid var(--peligro);
+	border-radius: var(--radio);
+	color: var(--peligro);
+	font-weight: bold;
+	padding: 12px;
+	margin: 8px 0;
+	animation: parpadeo 1s infinite;		/* parpadea; sacar esta linea si no se quiere */
+}
+
+@keyframes parpadeo {
+	50% { opacity: 0.4; }
+}
+
+/* Mensajes de resultado: <span id="resultado" class="exito">Guardado</span> */
+.exito {
+	color: var(--ok);
+	font-weight: bold;
+}
+
+.error {
+	color: var(--peligro);
+	font-weight: bold;
+}
+
+/* Barras: <progress max="4095"> y <meter min="0" max="100" low="30" high="80"> */
+progress,
+meter {
+	width: 100%;
+	height: 20px;
+}
+
+progress {
+	accent-color: var(--primario);
+}
+
+/* Texto de log o JSON crudo: <pre id="log"></pre> */
+pre {
+	background: #0d1117;
+	color: #c9d1d9;
+	padding: 12px;
+	border-radius: var(--radio);
+	overflow-x: auto;			/* si es muy ancho, scroll adentro y no en toda la pagina */
+	font-size: 0.85em;
+	max-height: 200px;
+}
+
+/* ---------- Botones ---------- */
+button,
+input[type="submit"] {
+	background: var(--primario);
+	color: white;
+	border: none;
+	border-radius: var(--radio);
+	padding: 8px 16px;
+	font-size: 1em;
+	cursor: pointer;			/* manito al pasar el mouse */
+	margin: 4px 4px 4px 0;
+}
+
+button:hover {
+	filter: brightness(0.9);	/* un poco mas oscuro al pasar el mouse */
+}
+
+button:active {
+	transform: scale(0.97);		/* se "hunde" al apretar */
+}
+
+button:disabled {
+	background: var(--borde);
+	color: var(--suave);
+	cursor: not-allowed;
+}
+
+/* Variantes opcionales: <button class="peligro">Apagar</button> */
+button.peligro {
+	background: var(--peligro);
+}
+
+button.ok {
+	background: var(--ok);
+}
+
+button.secundario {
+	background: transparent;
+	color: var(--primario);
+	border: 1px solid var(--primario);
+}
+
+/* ---------- Formularios ---------- */
+label {
+	margin-right: 12px;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="password"],
+select {
+	padding: 8px;
+	border: 1px solid var(--borde);
+	border-radius: var(--radio);
+	font-size: 1em;
+	background: white;
+	color: var(--texto);
+	max-width: 100%;
+}
+
+input:focus,
+select:focus {
+	outline: 2px solid var(--primario);		/* resalta el campo donde se esta escribiendo */
+	border-color: var(--primario);
+}
+
+input:invalid:not(:placeholder-shown) {	/* escrito y mal (fuera de min/max...); vacio no */
+	border-color: var(--peligro);
+}
+
+input[type="range"] {
+	width: 100%;
+	accent-color: var(--primario);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+	width: 18px;
+	height: 18px;
+	vertical-align: middle;
+	accent-color: var(--primario);
+}
+
+input[type="color"] {
+	width: 60px;
+	height: 36px;
+	border: 1px solid var(--borde);
+	border-radius: var(--radio);
+	padding: 2px;
+	background: white;
+}
+
+/* ---------- Tablas ---------- */
+table {
+	width: 100%;
+	border-collapse: collapse;	/* bordes simples, no dobles */
+	background: var(--tarjeta);
+}
+
+th,
+td {
+	padding: 8px;
+	border-bottom: 1px solid var(--borde);
+	text-align: left;
+}
+
+th {
+	background: var(--fondo);
+}
+
+tbody tr:nth-child(even) {
+	background: #f8f9fb;		/* filas alternadas: mas facil de leer */
+}
+
+/* ---------- Grilla opcional: <div class="fila"><section>..</section><section>..</section></div> ---------- */
+.fila {
+	display: flex;
+	gap: 16px;
+	flex-wrap: wrap;
+}
+
+.fila > * {
+	flex: 1 1 250px;			/* cada columna minimo 250px; si no entran, bajan */
+}
+
+/* ---------- Celular ---------- */
+@media (max-width: 600px) {
+	body {
+		padding: 8px;
+	}
+
+	button {
+		width: 100%;			/* botones a todo el ancho: mas faciles de tocar */
+		margin: 4px 0;
+	}
+
+	input[type="text"],
+	input[type="number"],
+	input[type="password"],
+	select {
+		width: 100%;
+	}
+}

@@ -4,3 +4,6 @@ sdkconfig.old
 
 # Cache de Python
 __pycache__/
+
+# Componentes que descarga idf.py (se vuelven a bajar solos)
+managed_components/

@@ -1,10 +1,19 @@
 /**
  * @file telnet.c
  * @brief Implementacion de telnet.h (RFC 854, 857 y 858).
+ *
+ * Un comando Telnet siempre empieza con el byte IAC (255). Formas posibles:
+ *   IAC IAC               -> un byte 255 de texto
+ *   IAC WILL/WONT/DO/DONT x -> negociar la opcion x (3 bytes)
+ *   IAC SB ... IAC SE     -> subnegociacion (largo variable)
+ *   IAC <otro>            -> comando de 2 bytes
+ *
+ * El filtro es una maquina de estados: recuerda por donde va entre llamadas
+ * (t->estado), porque un comando puede quedar partido entre dos recv().
  */
 
 #include "telnet.h"
-#include "tcp.h"
+#include "tcp.h"                /* tcp_enviar */
 
 /* Bytes de comando Telnet */
 #define IAC     255     /* "lo que sigue es un comando" */
@@ -30,7 +39,7 @@ enum {
 
 void telnet_inicio(telnet_t *t, int sock)
 {
-    t->estado = DATOS;
+    t->estado = DATOS;                  /* conexion nueva: empezar limpio */
     /* "Yo hago el eco" y "mando todo sin esperar": el cliente pasa a modo
      * caracter por caracter y deja de hacer eco local */
     static const uint8_t negociacion[] ={ IAC, WILL, OPT_ECHO, IAC, WILL, OPT_SGA };
@@ -39,15 +48,17 @@ void telnet_inicio(telnet_t *t, int sock)
 
 size_t telnet_filtrar(telnet_t *t, char *buf, size_t largo)
 {
+    /* i lee todos los bytes; j escribe solo los de texto, en el mismo buf.
+     * Como j <= i siempre, no se pisa nada que falte leer. */
     size_t j = 0;
     for (size_t i = 0; i < largo; i++) {
-        uint8_t c = (uint8_t)buf[i];
+        uint8_t c = (uint8_t)buf[i];    /* sin signo, para comparar con 255 */
         switch (t->estado) {
         case DATOS:
             if (c == IAC) {
-                t->estado = COMANDO;
+                t->estado = COMANDO;    /* empieza un comando: no es texto */
             } else {
-                buf[j++] = c;
+                buf[j++] = c;           /* texto: se queda */
             }
             break;
         case COMANDO:
@@ -55,9 +66,9 @@ size_t telnet_filtrar(telnet_t *t, char *buf, size_t largo)
                 buf[j++] = c;
                 t->estado = DATOS;
             } else if (c >= WILL && c <= DONT) {
-                t->estado = OPCION;
+                t->estado = OPCION;         /* falta un byte mas */
             } else if (c == SB) {
-                t->estado = SUB;
+                t->estado = SUB;            /* ignorar hasta IAC SE */
             } else {
                 t->estado = DATOS;          /* comando de 2 bytes: se ignora */
             }
@@ -71,9 +82,9 @@ size_t telnet_filtrar(telnet_t *t, char *buf, size_t largo)
             }
             break;
         case SUB_IAC:
-            t->estado = (c == SE) ? DATOS : SUB;
+            t->estado = (c == SE) ? DATOS : SUB;    /* IAC SE = fin; si no, sigue adentro */
             break;
         }
     }
-    return j;
+    return j;                           /* cuantos bytes de texto quedaron */
 }

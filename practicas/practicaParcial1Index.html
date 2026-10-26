@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">                                    <!-- acentos y simbolos bien -->
+<meta name="viewport" content="width=device-width">       <!-- que se vea bien en el celular -->
+<title>ESP32</title>                                      <!-- texto de la pestania -->
+</head>
+<body>
+<h1>ESP32</h1>
+
+<!-- Lo tuyo va aca -->
+
+<p>Pote 1: <span id="pot1">?</span></p>
+
+<p><a href="/wifi.html">Configurar WiFi</a></p>
+
+<script>
+// Tu JavaScript va aca. Para hablar con un handler de main.c:
+//   fetch('/direccion')                      pide algo (GET)
+//     .then(r => r.json())                   la respuesta como JSON
+//     .then(d => ...);                       hacer algo con ella (d.campo)
+// Para mandar JSON (POST): ver enviar() en GUIA.md, seccion 5.
+function actualizar() {
+	fetch('/actualizar')
+		.then(r => r.json())
+		.then(d => {
+			document.getElementById('pot1').textContent = d.pot1;
+		});
+}
+
+actualizar();                                 // una vez al cargar
+setInterval(actualizar, 500);                 // y despues cada 500 ms
+</script>
+</body>
+</html>

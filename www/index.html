@@ -1,38 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width">
-<title>ESP32</title>
+<meta charset="utf-8">                                    <!-- acentos y simbolos bien -->
+<meta name="viewport" content="width=device-width">       <!-- que se vea bien en el celular -->
+<title>ESP32</title>                                      <!-- texto de la pestania -->
 </head>
 <body>
 <h1>ESP32</h1>
 
-<p>LED 1 <button onclick="led(1, 1)">Prender</button> <button onclick="led(1, 0)">Apagar</button></p>
-<p>LED 2 <button onclick="led(2, 1)">Prender</button> <button onclick="led(2, 0)">Apagar</button></p>
-<p>LED 3 <button onclick="led(3, 1)">Prender</button> <button onclick="led(3, 0)">Apagar</button></p>
-<p>LED 4 <button onclick="led(4, 1)">Prender</button> <button onclick="led(4, 0)">Apagar</button></p>
-
-<pre id="estado">...</pre>
+<!-- Lo tuyo va aca -->
 
 <p><a href="/wifi.html">Configurar WiFi</a></p>
 
 <script>
-// Pide /led?n=..&v=.. y despues refresca el estado
-function led(n, v) {
-  fetch('/led?n=' + n + '&v=' + v).then(actualizar);
-}
-
-// Pide /estado y lo muestra tal cual
-function actualizar() {
-  fetch('/estado')
-    .then(r => r.text())
-    .then(t => document.getElementById('estado').textContent = t)
-    .catch(() => document.getElementById('estado').textContent = 'Sin conexion');
-}
-
-actualizar();
-setInterval(actualizar, 1000);   // cada 1 s
+// Tu JavaScript va aca. Para hablar con un handler de main.c:
+//   fetch('/direccion')                      pide algo (GET)
+//     .then(r => r.json())                   la respuesta como JSON
+//     .then(d => ...);                       hacer algo con ella (d.campo)
+// Para mandar JSON (POST): ver enviar() en GUIA.md, seccion 5.
 </script>
 </body>
 </html>

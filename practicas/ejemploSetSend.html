@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<!-- ejemploSetSend.html: enviar y recibir variables de distintos tipos, con y sin JSON.
+     Va en www/setsend.html (se abre en http://IP/setsend.html) y se sube con:
+     idf.py -p COM6 storage-flash
+     Usa los handlers de ejemploSetSend.c -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set y Send</title>
+<style>
+  body { font-family: sans-serif; max-width: 640px; margin: 20px auto; padding: 0 16px; }
+  section { border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  h2 { font-size: 1.1em; margin: 0 0 8px; }
+  label { display: inline-block; width: 80px; }
+  input, select { width: 140px; }
+  button { margin: 4px 4px 4px 0; }
+  pre { background: #f4f4f4; padding: 8px; white-space: pre-wrap; word-break: break-all; min-height: 1.2em; }
+  .nota { color: #666; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<h1>Set y Send</h1>
+
+<!-- ============ RECIBIR DEL ESP (el ESP manda, la pagina procesa) ============ -->
+<section>
+  <h2>1. Recibir del ESP</h2>
+  <button onclick="recibirJson()">GET /datos (JSON)</button>
+  <button onclick="recibirTexto()">GET /texto (texto)</button>
+  <button onclick="recibirValor()">GET /valor?campo=</button>
+  <select id="campo">
+    <option>entero</option><option>real</option><option>activo</option>
+    <option>nombre</option><option>color</option>
+  </select>
+  <p class="nota">Lo que llego (crudo) y como quedo procesado (con su tipo de JS):</p>
+  <pre id="crudo"></pre>
+  <pre id="procesado"></pre>
+</section>
+
+<!-- ============ MANDAR AL ESP (la pagina manda, el ESP procesa) ============ -->
+<section>
+  <h2>2. Mandar al ESP</h2>
+  <p class="nota">Solo se mandan los campos que tengan algo. "Cargar actuales" los llena con GET /datos.</p>
+  <p><label>entero</label> <input id="entero" type="number" step="1" placeholder="-1000..1000"></p>
+  <p><label>real</label>   <input id="real" type="number" step="0.01" placeholder="0..100"></p>
+  <p><label>activo</label>
+    <select id="activo">
+      <option value="">(no cambiar)</option>
+      <option value="true">true</option>
+      <option value="false">false</option>
+    </select></p>
+  <p><label>nombre</label> <input id="nombre" maxlength="16" placeholder="1..16 letras"></p>
+  <p><label>color</label>
+    <select id="color">
+      <option value="">(no cambiar)</option>
+      <option>rojo</option><option>verde</option><option>azul</option>
+    </select></p>
+  <p><label>valores</label> <input id="valores" placeholder="1,2,3,4"></p>
+
+  <button onclick="cargarActuales()">Cargar actuales</button><br>
+  <button onclick="mandarGet()">GET /set?... (sin JSON)</button>
+  <button onclick="mandarForm()">POST /form (sin JSON)</button>
+  <button onclick="mandarJson()">POST /datos (JSON)</button>
+
+  <p class="nota">Lo que se mando y lo que respondio el ESP:</p>
+  <pre id="enviado"></pre>
+  <pre id="respuesta"></pre>
+</section>
+
+<!-- ============ FORM CLASICO (sin JavaScript) ============ -->
+<section>
+  <h2>3. Formulario clasico (sin JavaScript)</h2>
+  <p class="nota">El navegador arma "entero=..&real=.." solo con los name de cada input y
+     navega a la respuesta. Con method="GET" iria a /set?entero=..</p>
+  <form method="POST" action="/form">
+    <p><label>entero</label> <input name="entero" type="number"></p>
+    <p><label>real</label>   <input name="real" type="number" step="0.01"></p>
+    <p><label>color</label>
+      <select name="color"><option value="">(no cambiar)</option><option>rojo</option><option>verde</option><option>azul</option></select></p>
+    <button type="submit">Enviar form</button>
+  </form>
+</section>
+
+<script>
+function $(id) { return document.getElementById(id); }
+
+/* Muestra un valor con su tipo de JS: asi se ve si llego como numero, texto, bool o arreglo */
+function conTipo(obj) {
+  const lineas = [];
+  for (const clave in obj) {
+    const v = obj[clave];
+    const tipo = Array.isArray(v) ? 'array' : typeof v;
+    lineas.push(clave + ' = ' + JSON.stringify(v) + '   (' + tipo + ')');
+  }
+  return lineas.join('\n');
+}
+
+/* ===================== RECIBIR ===================== */
+
+/* JSON: r.json() ya convierte. Los numeros llegan como number, true como boolean, [..] como array */
+async function recibirJson() {
+  const r = await fetch('/datos');
+  const d = await r.json();
+  $('crudo').textContent = JSON.stringify(d);
+  $('procesado').textContent = conTipo(d) +
+    '\n\nejemplos de uso: d.real * 2 = ' + (d.real * 2) +
+    ' | d.valores[0] = ' + d.valores[0] +
+    ' | d.extra.uptime_ms = ' + d.extra.uptime_ms;
+}
+
+/* Texto "clave=valor" por linea: llega TODO como string, hay que convertir a mano cada campo */
+async function recibirTexto() {
+  const r = await fetch('/texto');
+  const t = await r.text();
+  $('crudo').textContent = t;
+
+  const d = {};
+  for (const linea of t.split('\n')) {			// separar lineas
+    if (linea === '') continue;
+    const [clave, valor] = linea.split('=');	// separar clave y valor
+    d[clave] = valor;							// todavia es texto
+  }
+  /* Convertir cada uno a su tipo */
+  d.entero  = parseInt(d.entero);
+  d.real    = parseFloat(d.real);
+  d.activo  = d.activo === '1';
+  d.valores = d.valores.split(',').map(Number);	// "1,2,3,4" -> [1,2,3,4]
+  $('procesado').textContent = conTipo(d);
+}
+
+/* Un solo valor en texto: lo convertis segun lo que pediste */
+async function recibirValor() {
+  const campo = $('campo').value;
+  const r = await fetch('/valor?campo=' + campo);
+  const t = await r.text();
+  $('crudo').textContent = 'HTTP ' + r.status + ': ' + t;
+  if (!r.ok) { $('procesado').textContent = ''; return; }
+
+  let v = t;
+  if (campo === 'entero') v = parseInt(t);
+  if (campo === 'real')   v = parseFloat(t);
+  if (campo === 'activo') v = t === '1';
+  $('procesado').textContent = conTipo({ [campo]: v });
+}
+
+/* ===================== MANDAR ===================== */
+
+/* Lee los inputs y arma un objeto SOLO con los campos que tienen algo.
+ * conTipos = true: convierte a number/boolean/array (para JSON).
+ * conTipos = false: deja todo como texto (para URL o form, que son siempre texto) */
+function leerCampos(conTipos) {
+  const o = {};
+  if ($('entero').value  !== '') o.entero = conTipos ? Number($('entero').value) : $('entero').value;
+  if ($('real').value    !== '') o.real   = conTipos ? Number($('real').value)   : $('real').value;
+  if ($('activo').value  !== '') o.activo = conTipos ? $('activo').value === 'true' : $('activo').value;
+  if ($('nombre').value  !== '') o.nombre = $('nombre').value;
+  if ($('color').value   !== '') o.color  = $('color').value;
+  if ($('valores').value !== '') o.valores = conTipos
+      ? $('valores').value.split(',').map(Number)		// "1,2,3,4" -> [1,2,3,4]
+      : $('valores').value;
+  return o;
+}
+
+/* Muestra la respuesta, sea texto o JSON */
+async function mostrarRespuesta(r) {
+  const t = await r.text();
+  $('respuesta').textContent = 'HTTP ' + r.status + ': ' + t;
+  $('respuesta').style.color = (r.ok && !t.startsWith('ERROR') && !t.includes('"ok":false')) ? 'green' : 'red';
+}
+
+/* GET sin JSON: URLSearchParams arma "entero=5&real=2.5" y codifica espacios, #, & */
+async function mandarGet() {
+  const q = new URLSearchParams(leerCampos(false)).toString();
+  $('enviado').textContent = 'GET /set?' + q;
+  await mostrarRespuesta(await fetch('/set?' + q));
+}
+
+/* POST sin JSON: el mismo texto pero en el cuerpo. Con un URLSearchParams como body,
+ * fetch pone solo el Content-Type: application/x-www-form-urlencoded (como un <form>) */
+async function mandarForm() {
+  const q = new URLSearchParams(leerCampos(false));
+  $('enviado').textContent = 'POST /form\n' + q.toString();
+  await mostrarRespuesta(await fetch('/form', { method: 'POST', body: q }));
+}
+
+/* POST con JSON: JSON.stringify respeta los tipos (5 sin comillas, true, [1,2,3,4]) */
+async function mandarJson() {
+  const cuerpo = JSON.stringify(leerCampos(true));
+  $('enviado').textContent = 'POST /datos\n' + cuerpo;
+  await mostrarRespuesta(await fetch('/datos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: cuerpo
+  }));
+}
+
+/* Llena los inputs con lo que tiene el ESP ahora */
+async function cargarActuales() {
+  const d = await (await fetch('/datos')).json();
+  $('entero').value  = d.entero;
+  $('real').value    = d.real.toFixed(2);
+  $('activo').value  = String(d.activo);		// true -> "true" (el value del select)
+  $('nombre').value  = d.nombre;
+  $('color').value   = d.color;
+  $('valores').value = d.valores.join(',');		// [1,2,3,4] -> "1,2,3,4"
+}
+
+cargarActuales();
+</script>
+</body>
+</html>

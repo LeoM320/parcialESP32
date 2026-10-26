@@ -1,0 +1,65 @@
+<!-- implementacionTcpUner.html: seccion "Destino TCP" para pegar en www/wifi.html,
+     antes de <p><a href="/">Volver</a></p>. Usa los handlers de implementacionTcpUner.c:
+       GET  /valvula                          estado + destino guardado
+       POST /destino {"ip":..,"puerto":..}    guardar destino (IP vacia = deshabilitar)
+       POST /valvula {"setpoint":45}          mandar setpoint
+     Despues: idf.py -p COM6 flash (sube tambien www/). -->
+
+<h1>Destino TCP (valvula)</h1>
+<!-- El ESP se conecta como cliente a esta IP:puerto y habla protocolo UNER.
+     IP vacia = sin destino (valvula deshabilitada) -->
+<p>IP: <input id="ip" maxlength="15" placeholder="192.168.1.50"></p>
+<p>Puerto: <input id="puerto" type="number" min="1" max="65535"></p>
+<p><button onclick="guardarDestino()">Guardar destino</button> <span id="resultado"></span></p>
+<p>Estado: <span id="estado">-</span></p>
+<p>Posicion: <span id="posicion">-</span> % &nbsp; Setpoint: <span id="setpoint">-</span> %</p>
+<p>Ir a: <input id="sp" type="number" min="0" max="100" value="50"> % <button onclick="mandarSetpoint()">Mandar</button></p>
+
+<script>
+/* Al abrir la pagina: completar los campos con el destino guardado */
+fetch('/valvula').then(r => r.json()).then(d => {
+	document.getElementById('ip').value = d.ip;
+	document.getElementById('puerto').value = d.puerto || '';
+});
+
+/* ENVIAR un JSON con texto y numero: POST + JSON.stringify */
+function guardarDestino() {
+	fetch('/destino', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			ip: document.getElementById('ip').value,			// texto
+			puerto: Number(document.getElementById('puerto').value)	// Number(): que vaya como numero, no "5000"
+		})
+	}).then(r => r.json()).then(d => {
+		document.getElementById('resultado').textContent = d.ok ? 'Guardado' : d.error;
+	});
+}
+
+function mandarSetpoint() {
+	fetch('/valvula', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ setpoint: Number(document.getElementById('sp').value) })
+	});
+}
+
+/* RECIBIR: cada 500 ms pedir el estado y ponerlo en las etiquetas */
+function actualizarValvula() {
+	fetch('/valvula').then(r => r.json()).then(d => {
+		let estado = 'desconectado';
+		if (d.ip === '') {
+			estado = 'deshabilitada (sin destino)';
+		} else if (d.conectado) {
+			estado = d.controlable ? 'conectado' : 'conectado (no controlable)';
+		} else if (d.falla) {
+			estado = 'FALLA: sin respuesta';
+		}
+		document.getElementById('estado').textContent = estado;
+		document.getElementById('posicion').textContent = d.posicion;
+		document.getElementById('setpoint').textContent = d.setpoint;
+	});
+}
+actualizarValvula();
+setInterval(actualizarValvula, 500);
+</script>

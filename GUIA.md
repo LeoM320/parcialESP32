@@ -16,7 +16,7 @@ Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`.
    Celular ─WiFi── AP  "ESP32-Parcial" (192.168.4.1)
                     │
                     ├─ HTTP :80  ── web.c ── archivos de www/ (index.html, wifi.html)
-                    │                     └─ tus handlers en main.c (/led, /estado, /wifi)
+                    │                     └─ tus handlers en main.c (hoy solo /wifi)
                     │
                     └─ TCP :1234 ── task_tcp (main.c) ── telnet ── microrl ──► execute() (main.c)
 
@@ -27,8 +27,9 @@ Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`.
 |---|---|---|
 | `hardware.h` | pines de la placa y tablas `leds[]`, `switches[]`, `pots[]` | — |
 | `iodigital` | GPIO | `salida_init/set/get`, `entrada_init/get`, `entrada_interrupcion` |
-| `ianalogica` | ADC1 | `analogica_init`, `analogica_get` (promedio de 5), `analogica_get_crudo` (1 lectura) |
+| `ianalogica` | ADC1 | `analogica_init`, `analogica_get` (5 muestras, descarta la menor y la mayor y promedia el resto), `analogica_get_crudo` (1 lectura) |
 | `pwm` | PWM (MCPWM) | `pwm_init`, `pwm_set_duty` (0–100 %), `pwm_set_pulso_us` (servos) |
+| `rgb` | LED RGB integrado (WS2812, GPIO48) con el componente `led_strip` | `rgb_init`, `rgb_set(r, g, b)` (0–255; con 5–30 alcanza) |
 | `temporizador` | interrupción periódica (gptimer) | `temporizador_init` |
 | `memoria` | NVS: guardar y leer datos que sobreviven al reinicio | `memoria_init`, `memoria_get/set_str`, `memoria_get/set_u16` |
 | `wifi` | AP + STA | `wifi_init`, `wifi_sta_conectar` |
@@ -37,7 +38,7 @@ Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`.
 | `telnet` | que MobaXterm (Telnet) no duplique el eco | `telnet_inicio`, `telnet_filtrar` |
 | `microrl` + `config.h` | línea de comandos (la del profe) | `microrl_init`, `microrl_set_execute_callback`, `microrl_insert_char` |
 | **`main.c`** | **todo tu programa** | `app_main`, `task_tcp`, `execute`, `enviar`, handlers web |
-| `www/` | la página (HTML sin estilos) | `index.html`, `wifi.html` |
+| `www/` | la página (HTML sin estilos) | `index.html` (vacía, para vos), `wifi.html` |
 
 Cada `.h` tiene la documentación de sus funciones.
 
@@ -116,6 +117,9 @@ Microrl separa la línea en palabras: `argv[0]` es el comando, `argc` cuántas p
 
 ### Agregar un comando
 
+Hoy `execute()` no tiene ningún comando: a todo contesta `ERROR: comando desconocido`.
+Este es un ejemplo de cómo quedaría con tres:
+
 ```c
 int execute(int argc, const char *const *argv)
 {
@@ -171,17 +175,20 @@ un handler web (un `struct`, un arreglo, un contador), protegelos con un **mutex
 ### Cómo funciona
 
 1. El navegador pide `/` → el servidor manda `www/index.html` (es un archivo).
-2. Los botones llaman a `fetch('/led?n=2&v=1')` → eso lo atiende **tu** handler
-   `led_get()` en `main.c`.
-3. Cada 1 s la página pide `/estado` → tu handler `estado_get()` arma un texto y la
-   página lo muestra tal cual en un `<pre>`.
+2. Desde el HTML, `fetch('/algo?x=1')` pide una dirección sin recargar la página → la
+   atiende **tu** handler en `main.c`, si está en la tabla `uris[]`.
+3. Si no hay handler para esa dirección, se busca un archivo con ese nombre en `www/`
+   (si no existe: 404).
+
+Hoy `main.c` trae un solo handler, `wifi_post()` (`POST /wifi`, el formulario de
+`wifi.html`: guarda la red en NVS y se conecta). `index.html` está vacía: el resto lo
+agregás vos.
 
 ```
-index.html                          main.c
-──────────                          ──────
-<button onclick="led(2,1)">  ──►  GET /led?n=2&v=1  ──►  led_get(): salida_set(leds[1], 1)
-setInterval(actualizar, 1000) ──►  GET /estado      ──►  estado_get(): "LED 1: apagado\n..."
-<form action="/wifi">        ──►  POST /wifi       ──►  wifi_post(): NVS + conectar
+index.html / wifi.html               main.c
+──────────────────────               ──────
+fetch('/algo?x=1')       ──►  GET /algo?x=1  ──►  algo_get()   (lo escribís vos)
+<form action="/wifi">    ──►  POST /wifi     ──►  wifi_post(): NVS + conectar
 ```
 
 Los archivos de `www/` se graban en la flash con `idf.py flash` (partición SPIFFS). Si
@@ -189,34 +196,74 @@ cambiás un `.html`, hay que volver a flashear.
 
 ### Agregar algo a la página
 
-**Para ver un dato nuevo:** agregalo al texto de `estado_get()`:
+Siempre son tres pasos: **handler** en `main.c` + **línea en `uris[]`** (y su prototipo) +
+**HTML** que lo llame. Ejemplos de las dos formas típicas:
+
+**Controlar algo** (la página manda un valor):
 
 ```c
-largo += snprintf(txt + largo, sizeof(txt) - largo, "Umbral: %d\n", s_umbral);
-```
-
-**Para controlar algo nuevo:** un handler + una línea en la tabla `uris[]` + un botón.
-
-```c
-// main.c: GET /umbral?v=3000
-esp_err_t umbral_get(httpd_req_t *req)
+// main.c: GET /led?n=2&v=1
+esp_err_t led_get(httpd_req_t *req)
 {
-	char v[8];
-	if (!web_parametro(req, "v", v, sizeof(v))) {
-		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Falta v");
+	char n[4], v[4];
+	if (!web_parametro(req, "n", n, sizeof(n)) || !web_parametro(req, "v", v, sizeof(v))) {
+		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Faltan n y v");
 	}
-	s_umbral = atoi(v);
+	int i = atoi(n) - 1;                       // LED 1 = leds[0]
+	if (i < 0 || i >= LED_COUNT) {
+		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No existe ese LED");
+	}
+	salida_set(leds[i], strcmp(v, "1") == 0);
 	return httpd_resp_sendstr(req, "OK");
 }
 
-// en la tabla uris[] (y su prototipo arriba):
-	{ .uri = "/umbral", .method = HTTP_GET, .handler = umbral_get },
+// en la tabla uris[]:
+	{ .uri = "/led", .method = HTTP_GET, .handler = led_get },
 ```
 
 ```html
 <!-- www/index.html -->
-<p>Umbral <input id="umbral"> <button onclick="fetch('/umbral?v=' + umbral.value)">Enviar</button></p>
+<p>LED 2 <button onclick="fetch('/led?n=2&v=1')">Prender</button>
+         <button onclick="fetch('/led?n=2&v=0')">Apagar</button></p>
 ```
+
+**Ver datos** (la página pregunta cada tanto):
+
+```c
+// main.c: GET /estado -> texto
+esp_err_t estado_get(httpd_req_t *req)
+{
+	char txt[128];
+	int largo = 0;
+	// cada snprintf escribe a continuacion del anterior (txt + largo)
+	largo += snprintf(txt + largo, sizeof(txt) - largo, "Pote 1: %d\n", analogica_get(POT1_GPIO));
+	largo += snprintf(txt + largo, sizeof(txt) - largo, "SW 1: %s\n",
+					  entrada_get(SW1_GPIO) ? "suelto" : "apretado");
+	httpd_resp_set_type(req, "text/plain");
+	return httpd_resp_sendstr(req, txt);
+}
+
+// en la tabla uris[]:
+	{ .uri = "/estado", .method = HTTP_GET, .handler = estado_get },
+```
+
+```html
+<!-- www/index.html -->
+<pre id="estado">...</pre>
+<script>
+function actualizar() {
+  fetch('/estado')
+    .then(r => r.text())
+    .then(t => document.getElementById('estado').textContent = t)
+    .catch(() => document.getElementById('estado').textContent = 'Sin conexion');
+}
+setInterval(actualizar, 1000);   // cada 1 s
+</script>
+```
+
+Para mandar un número escrito: `<input id="umbral"> <button
+onclick="fetch('/umbral?v=' + umbral.value)">Enviar</button>`, y en el handler
+`web_parametro(req, "v", ...)` + `atoi`.
 
 Funciones útiles dentro de un handler:
 
@@ -235,6 +282,468 @@ Reglas:
   `httpd_resp_...`.
 - La tabla `uris[]` puede tener los handlers que quieras: `web_init()` agranda solo el
   límite del servidor (`max_uri_handlers`).
+
+### Datos en JSON (cJSON)
+
+El profe pide JSON en los dos sentidos. En C se usa **cJSON** (componente
+`espressif/cjson`, ya está en `main/idf_component.yml`; en ESP-IDF 6 no viene incluido).
+
+```
+pagina                                          ESP32
+──────                                          ─────
+fetch('/estado') .then(r => r.json())  ◄──  cJSON_CreateObject + Add... + PrintUnformatted
+fetch('/config', {method:'POST',        ──►  web_leer_cuerpo + cJSON_Parse + GetObjectItem
+  body: JSON.stringify({...})})
+```
+
+**La regla de oro de la memoria:** todo lo que crea cJSON (`cJSON_Parse`,
+`cJSON_CreateObject`) se libera con `cJSON_Delete(raiz)` (una vez, la raíz: se lleva todo
+lo de adentro). El texto de `cJSON_PrintUnformatted` se libera con `free()`. Si te olvidás,
+cada pedido pierde memoria y la placa termina reiniciándose.
+
+#### Dos ayudas (copiarlas en `main.c`)
+
+```c
+#include "cJSON.h"
+
+/* Manda el objeto como respuesta JSON y libera todo */
+esp_err_t responder_json(httpd_req_t *req, cJSON *obj)
+{
+	char *texto = cJSON_PrintUnformatted(obj);      // objeto -> texto {"a":1,...} (reserva memoria)
+	cJSON_Delete(obj);                              // el objeto ya no hace falta
+	if (texto == NULL) {
+		return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Sin memoria");
+	}
+	httpd_resp_set_type(req, "application/json");
+	esp_err_t err = httpd_resp_sendstr(req, texto);
+	free(texto);                                    // el texto tambien se libera
+	return err;
+}
+
+/* Lee el cuerpo del pedido y lo convierte en objeto (NULL si no es JSON valido).
+ * Quien la llama tiene que hacer cJSON_Delete del resultado. */
+cJSON *leer_json(httpd_req_t *req)
+{
+	char cuerpo[256];
+	if (web_leer_cuerpo(req, cuerpo, sizeof(cuerpo)) < 0) {
+		return NULL;                                // no entra o se corto
+	}
+	return cJSON_Parse(cuerpo);                     // NULL si esta mal escrito
+}
+```
+
+#### ESP → página: armar JSON
+
+```c
+/* GET /estado ->
+ * {"pot1":1971,"volt":1.49,"led1":true,"nombre":"ESP32","leds":[1,0,1,1],
+ *  "config":{"umbral":2000,"periodo":500,"modo":"auto"}} */
+esp_err_t estado_get(httpd_req_t *req)
+{
+	int p1 = analogica_get(POT1_GPIO);
+
+	cJSON *raiz = cJSON_CreateObject();                             // {}
+	cJSON_AddNumberToObject(raiz, "pot1", p1);                      // entero
+	cJSON_AddNumberToObject(raiz, "volt", p1 * 3.1 / 4095);         // float (es el mismo "Number")
+	cJSON_AddBoolToObject(raiz, "led1", salida_get(LED1_GPIO));     // true / false
+	cJSON_AddStringToObject(raiz, "nombre", "ESP32");               // texto
+
+	cJSON *arr = cJSON_AddArrayToObject(raiz, "leds");              // arreglo []
+	for (int i = 0; i < LED_COUNT; i++) {
+		cJSON_AddItemToArray(arr, cJSON_CreateNumber(salida_get(leds[i])));
+	}
+
+	config_t copia;                                                 // struct compartido: copiar con mutex
+	xSemaphoreTake(mutexConfig, portMAX_DELAY);
+	copia = config;
+	xSemaphoreGive(mutexConfig);
+	cJSON *cfg = cJSON_AddObjectToObject(raiz, "config");           // objeto adentro de objeto
+	cJSON_AddNumberToObject(cfg, "umbral", copia.umbral);
+	cJSON_AddNumberToObject(cfg, "periodo", copia.periodo_ms);
+	cJSON_AddStringToObject(cfg, "modo", copia.modo);
+
+	return responder_json(req, raiz);                               // manda y libera
+}
+
+/* GET /historial -> [{"n":0,"pot1":1970},{"n":1,"pot1":1972},...]  (arreglo de objetos) */
+esp_err_t historial_get(httpd_req_t *req)
+{
+	cJSON *lista = cJSON_CreateArray();                             // la raiz puede ser un arreglo
+	for (int i = 0; i < 3; i++) {
+		cJSON *item = cJSON_CreateObject();
+		cJSON_AddNumberToObject(item, "n", i);
+		cJSON_AddNumberToObject(item, "pot1", analogica_get_crudo(POT1_GPIO));
+		cJSON_AddItemToArray(lista, item);                          // el arreglo se adueña del item
+	}
+	return responder_json(req, lista);
+}
+```
+
+En la página:
+
+```js
+fetch('/estado')
+	.then(r => r.json())
+	.then(d => {
+		pot1.textContent   = d.pot1;                  // numero
+		volt.textContent   = d.volt.toFixed(2);       // float con 2 decimales
+		led1.textContent   = d.led1 ? 'ON' : 'OFF';   // bool
+		nombre.textContent = d.nombre;                // texto
+		led3.textContent   = d.leds[2];               // arreglo: posicion 2 = LED 3
+		umbral.textContent = d.config.umbral;         // objeto adentro de objeto
+	});
+
+fetch('/historial')
+	.then(r => r.json())
+	.then(lista => lista.forEach(x => console.log(x.n, x.pot1)));   // recorrer un arreglo
+```
+
+(`pot1.textContent` es un atajo de `document.getElementById('pot1').textContent`: el
+navegador crea una variable por cada `id`.)
+
+#### Página → ESP: leer JSON
+
+```js
+function enviar(direccion, objeto) {
+	return fetch(direccion, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(objeto)                  // objeto -> texto
+	}).then(r => r.json());
+}
+
+enviar('/led',    { n: 2, v: true });                           // numero + bool
+enviar('/config', { umbral: 1500, periodo: 250, modo: 'manual' });  // numero + texto
+enviar('/config', { umbral: Number(caja.value) });              // de un <input id="caja">: convertir!
+enviar('/leds',   { leds: [1, 0, 0, 1] });                      // arreglo
+enviar('/red',    { wifi: { ssid: 'MiRed', pass: '1234' } });   // objeto anidado
+```
+
+```c
+/* POST /led  {"n":2,"v":true}  (numero + bool, con validacion) */
+esp_err_t led_post(httpd_req_t *req)
+{
+	cJSON *raiz = leer_json(req);
+	if (raiz == NULL) {
+		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "JSON invalido");
+	}
+	cJSON *n = cJSON_GetObjectItem(raiz, "n");      // NULL si no esta
+	cJSON *v = cJSON_GetObjectItem(raiz, "v");
+	if (!cJSON_IsNumber(n) || !cJSON_IsBool(v) || n->valueint < 1 || n->valueint > LED_COUNT) {
+		cJSON_Delete(raiz);                         // ¡tambien al salir por error!
+		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Faltan n (1-4) y v (true/false)");
+	}
+	salida_set(leds[n->valueint - 1], cJSON_IsTrue(v));
+	cJSON_Delete(raiz);
+	return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
+/* POST /config  {"umbral":1500,"periodo":250,"modo":"manual"}
+ * Cada campo es opcional: se cambia solo lo que vino. Escribe un struct compartido -> mutex. */
+esp_err_t config_post(httpd_req_t *req)
+{
+	cJSON *raiz = leer_json(req);
+	if (raiz == NULL) {
+		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "JSON invalido");
+	}
+	cJSON *umbral  = cJSON_GetObjectItem(raiz, "umbral");
+	cJSON *periodo = cJSON_GetObjectItem(raiz, "periodo");
+	cJSON *modo    = cJSON_GetObjectItem(raiz, "modo");
+
+	xSemaphoreTake(mutexConfig, portMAX_DELAY);
+	if (cJSON_IsNumber(umbral))  { config.umbral = umbral->valueint; }       // valuedouble si es float
+	if (cJSON_IsNumber(periodo)) { config.periodo_ms = periodo->valueint; }
+	if (cJSON_IsString(modo)) {                                              // texto: copiar, no guardar el puntero
+		strncpy(config.modo, modo->valuestring, sizeof(config.modo) - 1);
+		config.modo[sizeof(config.modo) - 1] = '\0';
+	}
+	xSemaphoreGive(mutexConfig);
+
+	cJSON_Delete(raiz);
+	return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
+/* POST /leds  {"leds":[1,0,0,1]}  (arreglo) */
+esp_err_t leds_post(httpd_req_t *req)
+{
+	cJSON *raiz = leer_json(req);
+	if (raiz == NULL) {
+		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "JSON invalido");
+	}
+	cJSON *arr = cJSON_GetObjectItem(raiz, "leds");
+	if (!cJSON_IsArray(arr)) {
+		cJSON_Delete(raiz);
+		return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Falta leds: [..]");
+	}
+	int cant = cJSON_GetArraySize(arr);
+	for (int i = 0; i < cant && i < LED_COUNT; i++) {            // no pasarse de los LEDs que hay
+		cJSON *item = cJSON_GetArrayItem(arr, i);
+		if (cJSON_IsNumber(item)) {
+			salida_set(leds[i], item->valueint != 0);
+		}
+	}
+	cJSON_Delete(raiz);
+	return httpd_resp_sendstr(req, "{\"ok\":true}");
+}
+
+/* POST /red  {"wifi":{"ssid":"MiRed","pass":"1234"}}  (objeto anidado) */
+	cJSON *wifi = cJSON_GetObjectItem(raiz, "wifi");    // primero el de afuera
+	cJSON *ssid = cJSON_GetObjectItem(wifi, "ssid");    // despues el de adentro (si wifi es NULL, da NULL)
+	if (cJSON_IsString(ssid)) { ... ssid->valuestring ... }
+```
+
+Los datos compartidos de los ejemplos:
+
+```c
+typedef struct {
+	int  umbral;
+	int  periodo_ms;
+	char modo[16];
+} config_t;
+
+config_t config = { 2000, 500, "auto" };
+SemaphoreHandle_t mutexConfig;          // en app_main: mutexConfig = xSemaphoreCreateMutex();
+```
+
+| Para | Armar (ESP → página) | Leer (página → ESP) |
+|---|---|---|
+| objeto `{}` | `cJSON_CreateObject()` | `cJSON_Parse(texto)` |
+| número (int o float) | `cJSON_AddNumberToObject(o, "k", x)` | `cJSON_IsNumber(i)` → `i->valueint` / `i->valuedouble` |
+| bool | `cJSON_AddBoolToObject(o, "k", b)` | `cJSON_IsBool(i)` → `cJSON_IsTrue(i)` |
+| texto | `cJSON_AddStringToObject(o, "k", "txt")` | `cJSON_IsString(i)` → `i->valuestring` (copiarlo) |
+| arreglo `[]` | `cJSON_AddArrayToObject(o, "k")` + `cJSON_AddItemToArray(a, cJSON_CreateNumber(x))` | `cJSON_IsArray(a)`, `cJSON_GetArraySize(a)`, `cJSON_GetArrayItem(a, i)` |
+| objeto adentro | `cJSON_AddObjectToObject(o, "k")` | `cJSON_GetObjectItem(o, "k")` dos veces |
+| campo por nombre | — | `cJSON_GetObjectItem(o, "k")` (NULL si no está) |
+| a texto / liberar | `cJSON_PrintUnformatted(o)` + `free()` | `cJSON_Delete(raiz)` |
+
+Reglas:
+- Siempre **validar el tipo** (`cJSON_IsNumber`...) antes de usar `valueint`: si el campo
+  no vino, `GetObjectItem` da NULL y `n->valueint` reinicia la placa.
+- `cJSON_Delete` en **todos** los caminos de salida, también en los de error.
+- `valuestring` desaparece con el `cJSON_Delete`: copialo (`strncpy`) si lo necesitás después.
+- Desde un `<input>`, JavaScript manda texto: `Number(caja.value)` para que llegue como número.
+- Los floats salen con todos los decimales (`"volt":0.891013431013431`): redondealos en la
+  página con `d.volt.toFixed(2)`.
+- `httpd_resp_send_err` responde **texto**, no JSON: en la página `r.json()` falla con un
+  error. Si importa, mirá `r.ok` antes (`r.ok ? r.json() : ...`).
+- Probado en la placa (2026-10-25): los 6 ejemplos, los casos de error y 300 pedidos
+  seguidos sin perder memoria.
+- Para probar sin página: abrí `http://IP/estado` en el navegador (se ve el JSON), o desde la
+  consola del navegador (F12): `enviar('/led', {n:1, v:true})`.
+
+### Elementos de la página (HTML + JS)
+
+Todos siguen el mismo esquema: **el HTML pone el control**, **el JS lee su valor** y lo
+manda con `enviar()` (ver arriba), y **el handler en C lo lee del JSON**. Cada elemento
+lleva un `id`; en el JS, `caja.value` es un atajo de `document.getElementById('caja').value`.
+
+Hay una página de práctica con todos estos ejemplos en `practicas/elementos.html`: se
+abre con doble clic en la PC (sin la placa) y muestra el JSON que mandaría cada control.
+
+#### Mostrar datos
+
+```html
+<h2>Titulo</h2>                          <!-- titulos: h1 (el mas grande) .. h6 -->
+<p>Pote 1: <span id="pot1">?</span></p>  <!-- p = parrafo; span = un pedazo para cambiar -->
+<progress id="barra" max="4095"></progress>               <!-- barra de 0 a max -->
+<meter id="nivel" min="0" max="4095" low="1000" high="3000"></meter>  <!-- cambia de color -->
+<pre id="log"></pre>                     <!-- texto tal cual (respeta los saltos de linea) -->
+```
+
+```js
+pot1.textContent = d.pot1;                   // escribir texto
+barra.value = d.pot1;                        // mover la barra
+nivel.value = d.pot1;
+log.textContent += 'llego ' + d.pot1 + '\n'; // agregar una linea
+pot1.style.color = d.pot1 > 2000 ? 'red' : 'green';   // color segun el valor
+```
+
+#### Botones
+
+```html
+<button onclick="enviar('/led', {n: 2, v: true})">ON</button>
+<button id="btnGuardar" onclick="guardar()">Guardar</button>
+```
+
+```js
+btnGuardar.disabled = true;      // deshabilitarlo (gris, no se puede apretar)
+btnGuardar.textContent = 'Guardando...';   // cambiarle el texto
+```
+
+#### Caja de número o texto
+
+```html
+<input id="umbral" type="number" min="0" max="4095" value="2000">
+<input id="nombre" type="text" maxlength="15" placeholder="Nombre">
+<button onclick="enviar('/config', {umbral: Number(umbral.value), nombre: nombre.value})">Guardar</button>
+```
+
+`.value` **siempre es texto**: `Number(...)` para mandarlo como número (si no,
+`cJSON_IsNumber` lo rechaza). En C: `umbral->valueint`, `nombre->valuestring` (copiar con
+`strncpy`).
+
+#### Slider (deslizador), por ejemplo el brillo de un PWM
+
+```html
+<input id="brillo" type="range" min="0" max="100" value="0"
+       oninput="brilloTxt.textContent = brillo.value"
+       onchange="enviar('/pwm', {duty: Number(brillo.value)})">
+<span id="brilloTxt">0</span> %
+```
+
+- `oninput`: **mientras** lo movés (actualizar el número en pantalla).
+- `onchange`: **al soltarlo** (mandar una sola vez; con `oninput` mandaría decenas de
+  pedidos por segundo y saturaría el ESP).
+
+```c
+cJSON *duty = cJSON_GetObjectItem(raiz, "duty");
+if (cJSON_IsNumber(duty)) { pwm_set_duty(LED_PWM_GPIO, duty->valuedouble); }
+```
+
+#### Checkbox (casilla): habilitar o deshabilitar algo
+
+```html
+<label><input id="habilitar" type="checkbox" onchange="enviar('/config', {habilitado: habilitar.checked})"> Alarma habilitada</label>
+```
+
+`.checked` es `true` o `false` (un bool de verdad: llega como `cJSON_IsBool`). El `<label>`
+hace que también se pueda tocar el texto.
+
+```c
+cJSON *h = cJSON_GetObjectItem(raiz, "habilitado");
+if (cJSON_IsBool(h)) {
+	if (cJSON_IsTrue(h)) { xEventGroupSetBits(eventos, EV_HABILITADO); }    // bit de estado
+	else                 { xEventGroupClearBits(eventos, EV_HABILITADO); }
+}
+```
+
+#### Lista desplegable (select): elegir un modo
+
+```html
+<select id="modo" onchange="enviar('/modo', {modo: Number(modo.value)})">
+	<option value="0">Apagado</option>
+	<option value="1">Fijo</option>
+	<option value="2">Parpadeo</option>
+</select>
+```
+
+`value` es lo que se manda (conviene un número: va directo a un `enum` en C);
+el texto de adentro es lo que ve el usuario.
+
+```c
+typedef enum { MODO_APAGADO, MODO_FIJO, MODO_PARPADEO, MODO_CANTIDAD } modo_t;
+cJSON *m = cJSON_GetObjectItem(raiz, "modo");
+if (cJSON_IsNumber(m) && m->valueint >= 0 && m->valueint < MODO_CANTIDAD) {
+	xTaskNotify(hModo, m->valueint, eSetValueWithOverwrite);    // ej: avisar a la tarea
+}
+```
+
+#### Botones de opción (radio): una de varias, todas a la vista
+
+```html
+<label><input type="radio" name="vel" value="100" onchange="enviar('/vel', {ms: 100})"> Rapido</label>
+<label><input type="radio" name="vel" value="500" onchange="enviar('/vel', {ms: 500})" checked> Normal</label>
+<label><input type="radio" name="vel" value="1000" onchange="enviar('/vel', {ms: 1000})"> Lento</label>
+```
+
+Los que tienen el mismo `name` son un grupo: solo uno puede estar marcado.
+
+#### Selector de color: el LED RGB
+
+```html
+<input id="color" type="color" value="#000000" onchange="mandarColor()">
+```
+
+```js
+function mandarColor() {
+	const c = color.value;                        // "#ff8000"
+	enviar('/rgb', {
+		r: parseInt(c.substr(1, 2), 16),          // "ff" -> 255  (16 = hexadecimal)
+		g: parseInt(c.substr(3, 2), 16),          // "80" -> 128
+		b: parseInt(c.substr(5, 2), 16)           // "00" -> 0
+	});
+}
+```
+
+```c
+cJSON *r = cJSON_GetObjectItem(raiz, "r");    // igual g y b
+if (cJSON_IsNumber(r) && cJSON_IsNumber(g) && cJSON_IsNumber(b)) {
+	rgb_set(r->valueint / 8, g->valueint / 8, b->valueint / 8);    // /8: 255 encandila
+}
+```
+
+#### Tabla armada desde un arreglo (historial, lista de lecturas)
+
+```html
+<table border="1">
+	<thead><tr><th>N</th><th>Pote 1</th></tr></thead>
+	<tbody id="tabla"></tbody>
+</table>
+```
+
+```js
+fetch('/historial')                               // [{"n":0,"pot1":1970},{"n":1,"pot1":1972}]
+	.then(r => r.json())
+	.then(lista => {
+		tabla.innerHTML = '';                     // borrar las filas viejas
+		lista.forEach(x => {
+			tabla.innerHTML += '<tr><td>' + x.n + '</td><td>' + x.pot1 + '</td></tr>';
+		});
+	});
+```
+
+`innerHTML` escribe **HTML** (crea elementos); `textContent` escribe **texto** (lo muestra
+tal cual). Para un número, `textContent`; para armar filas, `innerHTML`.
+
+#### Mostrar u ocultar una parte
+
+```html
+<div id="alarma" style="display: none; color: red">¡ALARMA!</div>
+```
+
+```js
+alarma.style.display = d.pot1 > d.umbral ? 'block' : 'none';   // block = se ve, none = oculto
+```
+
+`<div>` es una caja para agrupar cosas (como `<p>`, pero sin significado de párrafo).
+
+#### Que los controles arranquen con los valores reales
+
+Si la página carga con `value="2000"` fijo pero el ESP tiene otro umbral, el control
+miente. Al cargar, pedir la configuración y ponerla en los controles:
+
+```js
+fetch('/estado')                    // o un GET /config aparte
+	.then(r => r.json())
+	.then(d => {
+		umbral.value = d.umbral;          // caja de numero
+		habilitar.checked = d.habilitado; // checkbox
+		modo.value = d.modo;              // select: elige la opcion con ese value
+	});
+```
+
+Va **una sola vez** al final del `<script>` (no dentro del `setInterval`: si no, te pisa lo
+que estás escribiendo cada medio segundo).
+
+#### Resumen
+
+| Elemento | HTML | Leer en JS | Llega a C como |
+|---|---|---|---|
+| texto a mostrar | `<span id="x">` | `x.textContent = ...` | — |
+| barra | `<progress id="x" max="4095">` | `x.value = ...` | — |
+| botón | `<button onclick="...">` | — | lo que mande `enviar()` |
+| número | `<input type="number">` | `Number(x.value)` | `cJSON_IsNumber` → `valueint` |
+| texto | `<input type="text">` | `x.value` | `cJSON_IsString` → `valuestring` |
+| slider | `<input type="range">` | `Number(x.value)` + `onchange` | `valueint` / `valuedouble` |
+| checkbox | `<input type="checkbox">` | `x.checked` | `cJSON_IsBool` → `cJSON_IsTrue` |
+| select | `<select><option value="0">` | `Number(x.value)` | `valueint` → `enum` |
+| radio | `<input type="radio" name="g">` | el `value` del marcado | `valueint` |
+| color | `<input type="color">` | `x.value` → `parseInt(..., 16)` | 3 números r, g, b |
+| tabla | `<tbody id="x">` | `x.innerHTML += '<tr>...'` | — (viene de un arreglo JSON) |
+| ocultar | `<div id="x">` | `x.style.display = 'none'` | — |
+
+Eventos: `onclick` (botón), `onchange` (al terminar de cambiar: checkbox, select, slider
+al soltar), `oninput` (mientras se escribe o se mueve).
 
 ---
 
@@ -362,7 +871,6 @@ libres (TX 17, RX 18); para probar sin otro dispositivo, un cable de GPIO 17 a G
 |---|---|---|
 | `idf.py flash` falla en "Serial port COM6" | el monitor o MobaXterm tiene el COM6 abierto | cerrarlo y volver a flashear |
 | La página no carga | el ESP32 cambió de IP o no está conectado | ver la IP en el monitor, o usar el AP (`192.168.4.1`) |
-| La página carga pero dice "Sin conexion" | el ESP32 se reinició o se cayó el WiFi | esperar unos segundos |
 | Cambié el HTML y no se ve | `www/` se graba al flashear | `idf.py -p COM6 flash`; en el navegador Ctrl+F5 |
 | MobaXterm no muestra nada | ya hay otro cliente TCP conectado | cerrar el otro (un cliente a la vez; uno colgado se libera en ~11 s) |
 | MobaXterm muestra todo doble | sesión *Raw* en vez de *Telnet* | usar *Telnet* |
@@ -383,4 +891,4 @@ libres (TX 17, RX 18); para probar sin otro dispositivo, un cable de GPIO 17 a G
 | Palabras por comando | 8 | `_COMMAND_TOKEN_NMB` en `config.h` |
 | Navegadores a la vez | 4 | `WEB_MAX_CONEXIONES` en `web.c` |
 | Timers de hardware | 4 | `TEMPORIZADOR_MAX` |
-| Muestras que promedia `analogica_get` | 5 (tarda 50 ms) | `ANALOGICA_MUESTRAS` en `ianalogica.h` |
+| Muestras que toma `analogica_get` (descarta la menor y la mayor) | 5 (tarda 50 ms, minimo 3) | `ANALOGICA_MUESTRAS` en `ianalogica.h` |

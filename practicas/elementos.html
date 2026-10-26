@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Elementos</title>
+</head>
+<body>
+<h1>Elementos de una pagina</h1>
+<p>Practica: abrila con doble clic en la PC. No habla con la placa: abajo muestra el JSON
+que mandaria cada control (es el mismo codigo que GUIA.md, seccion 5).</p>
+
+<h2>Mostrar datos</h2>
+<p>Pote 1: <span id="pot1">?</span></p>
+<progress id="barra" max="4095"></progress>
+<meter id="nivel" min="0" max="4095" low="1000" high="3000"></meter>
+<button onclick="simularPote()">Simular un valor nuevo</button>
+<div id="alarma" style="display: none; color: red">¡ALARMA! (pote mayor que 3000)</div>
+
+<h2>Botones</h2>
+<button onclick="enviar('/led', {n: 2, v: true})">LED 2 ON</button>
+<button onclick="enviar('/led', {n: 2, v: false})">LED 2 OFF</button>
+<button id="btnGuardar" onclick="guardar()">Guardar (se deshabilita 1 s)</button>
+
+<h2>Caja de numero y de texto</h2>
+<input id="umbral" type="number" min="0" max="4095" value="2000">
+<input id="nombre" type="text" maxlength="15" placeholder="Nombre">
+<button onclick="enviar('/config', {umbral: Number(umbral.value), nombre: nombre.value})">Guardar</button>
+
+<h2>Slider</h2>
+<input id="brillo" type="range" min="0" max="100" value="0"
+       oninput="brilloTxt.textContent = brillo.value"
+       onchange="enviar('/pwm', {duty: Number(brillo.value)})">
+<span id="brilloTxt">0</span> %
+
+<h2>Checkbox</h2>
+<label><input id="habilitar" type="checkbox" onchange="enviar('/config', {habilitado: habilitar.checked})"> Alarma habilitada</label>
+
+<h2>Select</h2>
+<select id="modo" onchange="enviar('/modo', {modo: Number(modo.value)})">
+	<option value="0">Apagado</option>
+	<option value="1">Fijo</option>
+	<option value="2">Parpadeo</option>
+</select>
+
+<h2>Radio</h2>
+<label><input type="radio" name="vel" value="100" onchange="enviar('/vel', {ms: 100})"> Rapido</label>
+<label><input type="radio" name="vel" value="500" onchange="enviar('/vel', {ms: 500})" checked> Normal</label>
+<label><input type="radio" name="vel" value="1000" onchange="enviar('/vel', {ms: 1000})"> Lento</label>
+
+<h2>Color (LED RGB)</h2>
+<input id="color" type="color" value="#000000" onchange="mandarColor()">
+
+<h2>Tabla desde un arreglo</h2>
+<button onclick="cargarTabla()">Cargar historial</button>
+<table border="1">
+	<thead><tr><th>N</th><th>Pote 1</th></tr></thead>
+	<tbody id="tabla"></tbody>
+</table>
+
+<h2>Lo que se mandaria al ESP</h2>
+<pre id="log"></pre>
+
+<script>
+// En la pagina real, enviar() hace el fetch POST. Aca solo muestra el JSON.
+function enviar(direccion, objeto) {
+	log.textContent += 'POST ' + direccion + '  ' + JSON.stringify(objeto) + '\n';
+}
+
+function guardar() {
+	enviar('/config', {umbral: Number(umbral.value)});
+	btnGuardar.disabled = true;
+	btnGuardar.textContent = 'Guardando...';
+	setTimeout(() => {                          // setTimeout: una sola vez, despues de 1000 ms
+		btnGuardar.disabled = false;
+		btnGuardar.textContent = 'Guardar (se deshabilita 1 s)';
+	}, 1000);
+}
+
+function mandarColor() {
+	const c = color.value;                        // "#ff8000"
+	enviar('/rgb', {
+		r: parseInt(c.substr(1, 2), 16),
+		g: parseInt(c.substr(3, 2), 16),
+		b: parseInt(c.substr(5, 2), 16)
+	});
+}
+
+// Simula lo que llegaria de GET /estado
+function simularPote() {
+	const d = { pot1: Math.floor(Math.random() * 4096) };   // numero al azar 0..4095
+	pot1.textContent = d.pot1;
+	barra.value = d.pot1;
+	nivel.value = d.pot1;
+	pot1.style.color = d.pot1 > 2000 ? 'red' : 'green';
+	alarma.style.display = d.pot1 > 3000 ? 'block' : 'none';
+}
+
+// Simula lo que llegaria de GET /historial
+function cargarTabla() {
+	const lista = [{n: 0, pot1: 1970}, {n: 1, pot1: 1972}, {n: 2, pot1: 1968}];
+	tabla.innerHTML = '';
+	lista.forEach(x => {
+		tabla.innerHTML += '<tr><td>' + x.n + '</td><td>' + x.pot1 + '</td></tr>';
+	});
+}
+</script>
+</body>
+</html>

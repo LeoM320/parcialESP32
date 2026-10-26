@@ -1,0 +1,6 @@
+## Componentes externos que descarga idf.py (quedan en managed_components/)
+dependencies:
+  idf:
+    version: '>=5.0'
+  espressif/led_strip: '^3.0.3'     # LED RGB integrado (WS2812), lo usa rgb.c
+  espressif/cjson: '^1.7.19'      # JSON: armar y leer (cJSON.h), lo pide el profe

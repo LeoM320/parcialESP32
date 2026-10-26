@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<!-- ejemploWifiGet.html: wifi.html del template pero con GET.
+     Va en www/wifiget.html (se abre en http://IP/wifiget.html) y se sube con:
+     idf.py -p COM6 storage-flash
+     Usa los handlers de ejemploWifiGet.c -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WiFi GET</title>
+<style>
+  body { font-family: sans-serif; max-width: 420px; margin: 20px auto; padding: 0 16px; }
+  label { display: inline-block; width: 90px; }
+  #msg { font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>Configurar WiFi (GET)</h1>
+
+<p>Red guardada: <b id="ssidActual">-</b> · IP: <b id="ip">-</b></p>
+
+<!-- Forma 1, sin JavaScript: method="GET" hace que el navegador vaya a
+     /wifi/guardar?ssid=...&pass=... (los name de cada input) y muestre el JSON que responde -->
+<h3>Forma 1: formulario comun</h3>
+<form method="GET" action="/wifi/guardar">
+  <p><label>Red (SSID)</label> <input name="ssid" maxlength="32" required></p>
+  <p><label>Clave</label> <input name="pass" type="password" maxlength="64"></p>
+  <p><button type="submit">Guardar</button></p>
+</form>
+
+<!-- Forma 2, con fetch: arma la misma URL, se queda en la pagina y muestra el resultado -->
+<h3>Forma 2: con fetch</h3>
+<p><label>Red (SSID)</label> <input id="ssid" maxlength="32"></p>
+<p><label>Clave</label> <input id="pass" type="password" maxlength="64"></p>
+<p><button onclick="guardar()">Guardar</button> <span id="msg"></span></p>
+
+<p><a href="/">Volver</a></p>
+
+<script>
+function $(id) { return document.getElementById(id); }
+
+async function ver() {
+  const r = await (await fetch('/wifi/ver')).json();
+  $('ssidActual').textContent = r.ssid || '(ninguna)';
+  $('ip').textContent = r.ip;
+}
+
+async function guardar() {
+  /* URLSearchParams arma "ssid=mi+red&pass=..." y codifica los caracteres raros (#, &, espacio) */
+  const q = new URLSearchParams({ ssid: $('ssid').value, pass: $('pass').value });
+  const r = await (await fetch('/wifi/guardar?' + q)).json();
+  $('msg').textContent = r.ok ? 'Guardado, conectando...' : r.error;
+  $('msg').style.color = r.ok ? 'green' : 'red';
+  if (r.ok) {
+    setTimeout(ver, 5000);						// la IP nueva tarda unos segundos
+  }
+}
+
+ver();
+</script>
+</body>
+</html>

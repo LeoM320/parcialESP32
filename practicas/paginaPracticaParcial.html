@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<!-- paginaPracticaParcial.html: pagina del simulacro 1 (consigna 5).
+     Va en www/index.html y se sube con: idf.py -p COM6 storage-flash
+     Usa los handlers de paginaPracticaParcial.c -->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tanque</title>
+<style>
+  body { font-family: sans-serif; max-width: 480px; margin: 20px auto; padding: 0 16px; }
+  section { border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  progress { width: 100%; height: 20px; }
+  label { display: inline-block; width: 60px; }
+  input { width: 70px; }
+  button { margin: 4px 4px 4px 0; }
+  #error { color: red; }
+</style>
+</head>
+<body>
+<h1>Control de tanque</h1>
+
+<!-- Estado: se actualiza solo cada 500 ms -->
+<section>
+  <p>Nivel: <b id="nivel">-</b> %</p>
+  <progress id="barra" max="100" value="0"></progress>
+  <p>Bomba: <b id="bomba">-</b> (vel <span id="vel">-</span> %)</p>
+  <p>Alarma: <b id="alarma">-</b></p>
+  <button id="btnRec" onclick="reconocer()" style="display:none">Reconocer alarma</button>
+</section>
+
+<!-- Ordenes -->
+<section>
+  <p>Modo:
+    <select id="modo" onchange="cambiarModo()">
+      <option value="auto">AUTO</option>
+      <option value="manual">MANUAL</option>
+    </select>
+  </p>
+  <button onclick="bomba(true)">Bomba ON</button>
+  <button onclick="bomba(false)">Bomba OFF</button>
+  <span id="errorOrden" style="color:red"></span>
+</section>
+
+<!-- Configuracion: se llena UNA vez al cargar -->
+<section>
+  <form id="form" onsubmit="guardar(event)">
+    <p><label>min</label>    <input id="min" type="number"></p>
+    <p><label>max</label>    <input id="max" type="number"></p>
+    <p><label>alarma</label> <input id="lim" type="number"></p>
+    <p><label>vel</label>    <input id="velCfg" type="number"></p>
+    <button type="submit">Guardar</button>
+    <span id="error"></span>
+  </form>
+</section>
+
+<script>
+/* Atajo para no escribir document.getElementById cada vez */
+function $(id) { return document.getElementById(id); }
+
+/* Manda un objeto como JSON y devuelve la respuesta ya convertida.
+ * Si el ESP responde 400 (no es JSON), devuelve {ok:false, error:...} */
+async function post(url, datos) {
+  const r = await fetch(url, { method: 'POST', body: JSON.stringify(datos) });
+  if (!r.ok) {
+    return { ok: false, error: 'HTTP ' + r.status + ': ' + await r.text() };
+  }
+  return r.json();
+}
+
+/* Pide /estado y pinta todo. llenarForm = true solo al cargar,
+ * si no cada 500 ms te borraria lo que estas escribiendo */
+async function actualizar(llenarForm) {
+  try {
+    const e = await (await fetch('/estado')).json();
+
+    $('nivel').textContent = e.nivel;
+    $('barra').value = e.nivel;
+    $('bomba').textContent = e.bomba ? 'ON' : 'OFF';
+    $('vel').textContent = e.vel;
+
+    $('alarma').textContent = e.alarma;
+    $('alarma').style.color = e.alarma === 'activa' ? 'red'
+                            : e.alarma === 'reconocida' ? 'orange' : 'green';
+    $('btnRec').style.display = e.alarma === 'activa' ? '' : 'none';
+
+    if (document.activeElement !== $('modo')) {	// no pisar el select mientras lo usas
+      $('modo').value = e.modo;
+    }
+
+    if (llenarForm) {
+      $('min').value = e.min;
+      $('max').value = e.max;
+      $('lim').value = e.lim;
+      $('velCfg').value = e.vel;
+    }
+  } catch (err) {
+    $('alarma').textContent = 'sin conexion';
+  }
+}
+
+async function cambiarModo() {
+  const r = await post('/modo', { modo: $('modo').value });
+  $('errorOrden').textContent = r.ok ? '' : r.error;
+}
+
+async function bomba(on) {
+  const r = await post('/bomba', { on: on });
+  $('errorOrden').textContent = r.ok ? '' : r.error;
+}
+
+async function reconocer() {
+  const r = await post('/reconocer', {});
+  $('errorOrden').textContent = r.ok ? '' : r.error;
+}
+
+async function guardar(ev) {
+  ev.preventDefault();							// que el form no recargue la pagina
+  const r = await post('/config', {
+    min:    Number($('min').value),				// Number(): texto del input -> numero
+    max:    Number($('max').value),				// sin esto manda "30" y el ESP da 400
+    alarma: Number($('lim').value),
+    vel:    Number($('velCfg').value)
+  });
+  $('error').textContent = r.ok ? 'Guardado' : r.error;
+  $('error').style.color = r.ok ? 'green' : 'red';
+}
+
+actualizar(true);								// al cargar: llena tambien el form
+setInterval(() => actualizar(false), 500);		// despues, cada 500 ms
+</script>
+</body>
+</html>

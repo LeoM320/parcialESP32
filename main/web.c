@@ -1,16 +1,21 @@
 /**
  * @file web.c
  * @brief Implementacion de web.h.
+ *
+ * Usa el servidor HTTP de ESP-IDF (esp_http_server). Cada direccion (URI) tiene
+ * una funcion "handler" que el servidor llama cuando un navegador la pide.
+ * Las paginas (www/) estan grabadas en la particion SPIFFS de la flash y se
+ * leen como archivos comunes con fopen/fread.
  */
 
 #include "web.h"
-#include <stdio.h>
-#include <string.h>
-#include "esp_spiffs.h"
+#include <stdio.h>          /* fopen, fread, snprintf */
+#include <string.h>         /* strrchr, strcmp, strstr, strcspn */
+#include "esp_spiffs.h"     /* sistema de archivos en flash */
 #include "esp_log.h"
 
-#define SPIFFS_BASE     "/spiffs"
-#define SPIFFS_PARTICION "storage"
+#define SPIFFS_BASE     "/spiffs"   /* carpeta donde aparecen los archivos de www/ */
+#define SPIFFS_PARTICION "storage"  /* nombre de la particion (partitions.csv) */
 #define RUTA_MAX        64      /* SPIFFS admite nombres de hasta 32 caracteres */
 #define BLOQUE          1024    /* tamanio de cada envio parcial */
 #define CAMPO_CRUDO_MAX 200     /* campo de formulario sin decodificar (64 x 3 + margen) */
@@ -18,9 +23,10 @@
 
 static const char *TAG = "web";
 
+/* Le dice al navegador que tipo de archivo es, segun la extension */
 static const char *tipo_contenido(const char *ruta)
 {
-    const char *ext = strrchr(ruta, '.');
+    const char *ext = strrchr(ruta, '.');   /* el ultimo '.' del nombre */
     if (ext == NULL)              return "text/plain";
     if (strcmp(ext, ".html") == 0) return "text/html";
     if (strcmp(ext, ".css") == 0)  return "text/css";
@@ -36,23 +42,26 @@ static const char *tipo_contenido(const char *ruta)
 static esp_err_t enviar_archivo(httpd_req_t *req, const char *nombre, size_t largo)
 {
     char ruta[RUTA_MAX];
+    /* Nombre demasiado largo, o con ".." (intento de salir de la carpeta): 404 */
     if (largo + sizeof(SPIFFS_BASE) > sizeof(ruta) || strstr(nombre, "..") != NULL) {
         return httpd_resp_send_404(req);
     }
+    /* "/spiffs" + los primeros "largo" caracteres de nombre (%.*s) */
     snprintf(ruta, sizeof(ruta), SPIFFS_BASE "%.*s", (int)largo, nombre);
 
     FILE *f = fopen(ruta, "r");
     if (f == NULL) {
         ESP_LOGW(TAG, "No existe %s", ruta);
-        return httpd_resp_send_404(req);
+        return httpd_resp_send_404(req);    /* "no encontrado" */
     }
 
     httpd_resp_set_type(req, tipo_contenido(ruta));
 
+    /* Se manda de a 1 KB para no necesitar el archivo entero en RAM */
     char bloque[BLOQUE];
     size_t leidos;
     esp_err_t err = ESP_OK;
-    while ((leidos = fread(bloque, 1, sizeof(bloque), f)) > 0) {
+    while ((leidos = fread(bloque, 1, sizeof(bloque), f)) > 0) {    /* hasta el fin del archivo */
         err = httpd_resp_send_chunk(req, bloque, leidos);
         if (err != ESP_OK) {
             break;              /* el cliente corto la conexion */
@@ -70,7 +79,7 @@ static esp_err_t enviar_archivo(httpd_req_t *req, const char *nombre, size_t lar
 static esp_err_t archivo_handler(httpd_req_t *req)
 {
     size_t largo = strcspn(req->uri, "?");          /* URI sin la parte "?..." */
-    if (largo == 1) {
+    if (largo == 1) {                               /* la URI es solo "/" */
         return enviar_archivo(req, "/index.html", strlen("/index.html"));
     }
     return enviar_archivo(req, req->uri, largo);
@@ -83,10 +92,11 @@ esp_err_t web_enviar_archivo(httpd_req_t *req, const char *nombre)
 
 int web_leer_cuerpo(httpd_req_t *req, char *buf, size_t tamano)
 {
-    if (req->content_len >= tamano) {
-        return -1;
+    if (req->content_len >= tamano) {   /* content_len: cuantos bytes dice que manda el navegador */
+        return -1;                      /* no entra (hace falta lugar para el '\0') */
     }
 
+    /* Como en TCP, el cuerpo puede llegar en varias partes: leer hasta completarlo */
     size_t total = 0;
     while (total < req->content_len) {
         int n = httpd_req_recv(req, buf + total, req->content_len - total);
@@ -98,10 +108,11 @@ int web_leer_cuerpo(httpd_req_t *req, char *buf, size_t tamano)
         }
         total += n;
     }
-    buf[total] = '\0';
+    buf[total] = '\0';          /* terminarlo para usarlo como texto */
     return total;
 }
 
+/* Un caracter hexadecimal ('0'..'9', 'a'..'f', 'A'..'F') a su valor 0..15; -1 si no es */
 static int valor_hex(char c)
 {
     if (c >= '0' && c <= '9') return c - '0';
@@ -110,15 +121,18 @@ static int valor_hex(char c)
     return -1;
 }
 
+/* Busca "clave=valor" en "a=1&b=2..." y decodifica el valor:
+ * el navegador manda los espacios como '+' y los caracteres raros como %XX
+ * (ej. "Mi%20Red" = "Mi Red"). */
 bool web_campo(const char *cuerpo, const char *clave, char *dest, size_t tamano)
 {
     /* Codificado ocupa hasta 3 veces mas ("%XX" por caracter) */
     char crudo[CAMPO_CRUDO_MAX];
     if (httpd_query_key_value(cuerpo, clave, crudo, sizeof(crudo)) != ESP_OK) {
-        return false;
+        return false;                   /* no esta esa clave */
     }
 
-    size_t j = 0;
+    size_t j = 0;                       /* i recorre crudo, j escribe en dest */
     for (size_t i = 0; crudo[i] != '\0'; i++) {
         if (j + 1 >= tamano) {
             return false;               /* no entra en dest */
@@ -127,8 +141,8 @@ bool web_campo(const char *cuerpo, const char *clave, char *dest, size_t tamano)
         if (c == '+') {
             c = ' ';
         } else if (c == '%' && valor_hex(crudo[i + 1]) >= 0 && valor_hex(crudo[i + 2]) >= 0) {
-            c = (char)(valor_hex(crudo[i + 1]) * 16 + valor_hex(crudo[i + 2]));
-            i += 2;
+            c = (char)(valor_hex(crudo[i + 1]) * 16 + valor_hex(crudo[i + 2]));   /* %41 -> 0x41 = 'A' */
+            i += 2;                     /* saltear los dos digitos */
         }
         dest[j++] = c;
     }
@@ -139,22 +153,25 @@ bool web_campo(const char *cuerpo, const char *clave, char *dest, size_t tamano)
 bool web_parametro(httpd_req_t *req, const char *clave, char *dest, size_t tamano)
 {
     char query[CAMPO_CRUDO_MAX];
+    /* De "/led?n=2&v=1" copia "n=2&v=1" */
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) {
         return false;                   /* la URL no tiene "?..." (o es muy larga) */
     }
-    return web_campo(query, clave, dest, tamano);
+    return web_campo(query, clave, dest, tamano);   /* mismo formato que un formulario */
 }
 
 httpd_handle_t web_init(const httpd_uri_t *uris, size_t cantidad)
 {
+    /* 1. Montar SPIFFS: los archivos de www/ aparecen en /spiffs/ */
     esp_vfs_spiffs_conf_t spiffs_cfg = {
         .base_path              = SPIFFS_BASE,
         .partition_label        = SPIFFS_PARTICION,
-        .max_files              = 4,
+        .max_files              = 4,        /* archivos abiertos a la vez */
         .format_if_mount_failed = false,    /* si falla, es que no se grabo www/: no borrar */
     };
     ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
 
+    /* 2. Configurar el servidor HTTP (puerto 80 por defecto) */
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.uri_match_fn = httpd_uri_match_wildcard;    // permite URIs con comodin: "/*"
     /* lwIP admite 10 sockets en total (CONFIG_LWIP_MAX_SOCKETS). El servidor usa
@@ -162,18 +179,21 @@ httpd_handle_t web_init(const httpd_uri_t *uris, size_t cantidad)
      * tu servidor TCP. Si se llena, cierra la conexion mas vieja. */
     cfg.max_open_sockets = WEB_MAX_CONEXIONES;
     cfg.lru_purge_enable = true;
-    if (cfg.max_uri_handlers < cantidad + 1) {
+    if (cfg.max_uri_handlers < cantidad + 1) {      /* +1 por el de archivos */
         cfg.max_uri_handlers = cantidad + 1;
     }
 
+    /* 3. Arrancar (crea la tarea del servidor) */
     httpd_handle_t server = NULL;
     ESP_ERROR_CHECK(httpd_start(&server, &cfg));
 
+    /* 4. Registrar tus handlers (los de main.c) */
     for (size_t i = 0; i < cantidad; i++) {
         ESP_ERROR_CHECK(httpd_register_uri_handler(server, &uris[i]));
     }
 
     /* Ultimo: cualquier otro GET se busca como archivo */
+    // (el servidor prueba los handlers en orden de registro: "/*" coincide con todo)
     static const httpd_uri_t archivos = {
         .uri     = "/*",
         .method  = HTTP_GET,

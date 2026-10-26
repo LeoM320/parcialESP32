@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Ejemplo de estilos</title>
+<!-- En www/ seria href="/estilos.css" (con el contenido de ejemploEstilos.css) -->
+<link rel="stylesheet" href="ejemploEstilos.css">
+</head>
+<body>
+<h1>Ejemplo de estilos propios</h1>
+<p>Abrila con doble clic en la PC. No habla con la placa: los botones simulan datos.
+Todos los elementos que usamos, con <b>ejemploEstilos.css</b> (sin internet).</p>
+
+<div class="fila">
+<section>
+	<h2>Mostrar datos</h2>
+	<p>Pote 1: <span id="pot1" class="valor">?</span></p>
+	<progress id="barra" max="4095" value="0"></progress>
+	<meter id="nivel" min="0" max="100" low="30" high="80" value="0"></meter>
+	<p>Conexion: <span id="estado" class="estado">desconocido</span></p>
+	<div id="alarma" class="alarma" style="display:none">ALARMA: nivel alto</div>
+	<button onclick="simular()">Simular datos</button>
+</section>
+
+<section>
+	<h2>Botones</h2>
+	<button>Normal</button>
+	<button class="ok">Encender</button>
+	<button class="peligro">Apagar</button>
+	<button class="secundario">Secundario</button>
+	<button disabled>Deshabilitado</button>
+	<p><button id="btnGuardar" onclick="guardar()">Guardar (se deshabilita 1 s)</button>
+	   <span id="resultado"></span></p>
+</section>
+</div>
+
+<!-- Un form tiene su propia caja (como el de wifi.html) -->
+<form onsubmit="event.preventDefault(); mostrarError();">
+	<h2>Formulario</h2>
+	<p>Red (SSID): <input type="text" maxlength="32" placeholder="MiRed" required></p>
+	<p>Clave: <input type="password" maxlength="64"></p>
+	<p>Umbral: <input type="number" min="0" max="100" value="50"> (fuera de 0..100 se pone rojo)</p>
+	<p>Modo: <select>
+		<option value="auto">Automatico</option>
+		<option value="manual">Manual</option>
+	</select></p>
+	<p><label><input type="checkbox" checked> Alarma habilitada</label></p>
+	<p><label><input type="radio" name="vel" value="100"> Rapido</label>
+	   <label><input type="radio" name="vel" value="500" checked> Normal</label>
+	   <label><input type="radio" name="vel" value="1000"> Lento</label></p>
+	<p>Color RGB: <input type="color" value="#1f6feb"></p>
+	<p>Brillo: <span id="brilloTxt" class="valor">40</span> %
+	   <input id="brillo" type="range" min="0" max="100" value="40"
+	          oninput="brilloTxt.textContent = brillo.value"></p>
+	<p><button type="submit">Guardar</button> <span id="errorForm"></span></p>
+</form>
+
+<section>
+	<h2>Tabla</h2>
+	<table>
+		<thead><tr><th>N</th><th>Pote 1</th><th>Estado</th></tr></thead>
+		<tbody>
+			<tr><td>0</td><td>1970</td><td><span class="estado ok">ok</span></td></tr>
+			<tr><td>1</td><td>3500</td><td><span class="estado falla">alto</span></td></tr>
+			<tr><td>2</td><td>2400</td><td><span class="estado aviso">atencion</span></td></tr>
+		</tbody>
+	</table>
+</section>
+
+<section>
+	<h2>Log</h2>
+	<pre id="log">{"nivel":54,"bomba":false,"modo":"manual"}</pre>
+</section>
+
+<p><a href="#">Volver</a></p>
+
+<script>
+/* Simula lo que llegaria de GET /estado y como cambiar estilos desde JS */
+function simular() {
+	const pot = Math.floor(Math.random() * 4096);			// 0..4095
+	const pct = Math.round(pot * 100 / 4095);
+	const conectado = Math.random() > 0.3;
+
+	pot1.textContent = pot;
+	barra.value = pot;
+	nivel.value = pct;										// meter: verde/amarillo/rojo segun low/high
+	estado.textContent = conectado ? 'conectado' : 'FALLA';
+	estado.className = 'estado ' + (conectado ? 'ok' : 'falla');	// cambiar la clase = cambiar el estilo
+	alarma.style.display = pct > 80 ? 'block' : 'none';		// mostrar/ocultar
+	log.textContent = JSON.stringify({pot1: pot, pct: pct, conectado: conectado});
+}
+
+function guardar() {
+	btnGuardar.disabled = true;							// el CSS de button:disabled lo pone gris
+	resultado.textContent = 'Guardando...';
+	resultado.className = '';
+	setTimeout(() => {
+		btnGuardar.disabled = false;
+		resultado.textContent = 'Guardado';
+		resultado.className = 'exito';					// verde
+	}, 1000);
+}
+
+function mostrarError() {
+	errorForm.textContent = 'Ejemplo de error: ip o puerto invalido';
+	errorForm.className = 'error';						// rojo
+}
+</script>
+</body>
+</html>

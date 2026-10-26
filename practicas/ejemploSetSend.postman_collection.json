@@ -1,0 +1,205 @@
+{
+  "info": {
+    "name": "ejemploSetSend (ESP32)",
+    "description": "Peticiones de ejemploSetSend.c. Importar en Postman de escritorio (Import -> este archivo). Cambiar la variable ip de la coleccion si la placa tiene otra.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "ip", "value": "192.168.123.38" }
+  ],
+  "item": [
+    {
+      "name": "1. Recibir del ESP",
+      "item": [
+        {
+          "name": "GET /datos (JSON)",
+          "request": { "method": "GET", "url": "http://{{ip}}/datos" }
+        },
+        {
+          "name": "GET /texto (texto)",
+          "request": { "method": "GET", "url": "http://{{ip}}/texto" }
+        },
+        {
+          "name": "GET /valor?campo=real",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://{{ip}}/valor?campo=real",
+              "protocol": "http", "host": ["{{ip}}"], "path": ["valor"],
+              "query": [ { "key": "campo", "value": "real" } ]
+            }
+          }
+        },
+        {
+          "name": "GET /valor?campo=xyz (404)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://{{ip}}/valor?campo=xyz",
+              "protocol": "http", "host": ["{{ip}}"], "path": ["valor"],
+              "query": [ { "key": "campo", "value": "xyz" } ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Mandar sin JSON (GET con parametros)",
+      "item": [
+        {
+          "name": "GET /set todos los tipos",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://{{ip}}/set?entero=-25&real=37.5&activo=true&nombre=mi%20tanque&color=azul&valores=10,20,30,255",
+              "protocol": "http", "host": ["{{ip}}"], "path": ["set"],
+              "query": [
+                { "key": "entero", "value": "-25" },
+                { "key": "real", "value": "37.5" },
+                { "key": "activo", "value": "true" },
+                { "key": "nombre", "value": "mi%20tanque" },
+                { "key": "color", "value": "azul" },
+                { "key": "valores", "value": "10,20,30,255" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /set un solo campo",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://{{ip}}/set?activo=0",
+              "protocol": "http", "host": ["{{ip}}"], "path": ["set"],
+              "query": [ { "key": "activo", "value": "0" } ]
+            }
+          }
+        },
+        {
+          "name": "GET /set error: real con coma",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://{{ip}}/set?real=2,5",
+              "protocol": "http", "host": ["{{ip}}"], "path": ["set"],
+              "query": [ { "key": "real", "value": "2,5" } ]
+            }
+          }
+        },
+        {
+          "name": "GET /set error: fuera de rango",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "http://{{ip}}/set?entero=5000",
+              "protocol": "http", "host": ["{{ip}}"], "path": ["set"],
+              "query": [ { "key": "entero", "value": "5000" } ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Mandar sin JSON (POST formulario)",
+      "item": [
+        {
+          "name": "POST /form x-www-form-urlencoded",
+          "request": {
+            "method": "POST",
+            "url": "http://{{ip}}/form",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "entero", "value": "7" },
+                { "key": "real", "value": "12.25" },
+                { "key": "activo", "value": "on" },
+                { "key": "color", "value": "rojo" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /form error: color invalido",
+          "request": {
+            "method": "POST",
+            "url": "http://{{ip}}/form",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [ { "key": "color", "value": "violeta" } ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Mandar con JSON (POST)",
+      "item": [
+        {
+          "name": "POST /datos todos los tipos",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "http://{{ip}}/datos",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entero\": 42,\n  \"real\": 3.75,\n  \"activo\": true,\n  \"nombre\": \"bomba 1\",\n  \"color\": \"verde\",\n  \"valores\": [1, 2, 3, 4]\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "POST /datos un solo campo",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "http://{{ip}}/datos",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"real\": 99.9 }",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "POST /datos 400: tipo incorrecto (entero como texto)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "http://{{ip}}/datos",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"entero\": \"42\" }",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "POST /datos 400: JSON mal formado",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "http://{{ip}}/datos",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"entero\": 42, }",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        },
+        {
+          "name": "POST /datos ok:false: valores fuera de rango",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": "http://{{ip}}/datos",
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"valores\": [1, 2, 300, 4] }",
+              "options": { "raw": { "language": "json" } }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

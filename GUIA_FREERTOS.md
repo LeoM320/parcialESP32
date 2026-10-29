@@ -517,7 +517,7 @@ static void tarea_adc(void *arg)
         // pdTRUE: pone el contador en 0 al salir (como semáforo binario)
         // pdFALSE: le resta 1 (como semáforo contador)
         uint32_t cuantos = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        int pot = analogica_get_crudo(POT1_GPIO);   // cuantos = avisos acumulados desde la última vez
+        int pot = analogica_get(POT1_GPIO);         // cuantos = avisos acumulados desde la última vez
     }
 }
 ```
@@ -627,7 +627,7 @@ esp_timer_start_periodic(t, 2000);          // en MICROsegundos
 Detalle completo en `GUIA.md` (recetas 6.A timer y 6.B pulsador). Lo esencial:
 
 1. La ISR es **corta**, marcada **`IRAM_ATTR`**, y usa **solo funciones `...FromISR`**.
-2. **Nunca** en una ISR: `printf`, `ESP_LOG`, ADC (`analogica_get` usa un mutex),
+2. **Nunca** en una ISR: `printf`, `ESP_LOG`, ADC (`analogica_get`),
    `vTaskDelay`, tomar un mutex, nada que espere. `salida_set` sí se puede (es un
    `gpio_set_level`), pero igual conviene dejarle el trabajo a la tarea.
 3. La ISR **avisa**, una tarea **hace el trabajo**.
@@ -909,7 +909,7 @@ static void tarea_espejo(void *arg)
         xEventGroupWaitBits(s_modos, MODO_ESPEJO, pdFALSE, pdFALSE, portMAX_DELAY);
         TickType_t ultimo = xTaskGetTickCount();            // recién despertó
         while (xEventGroupGetBits(s_modos) & MODO_ESPEJO) {
-            int pot = analogica_get_crudo(POT1_GPIO);       // 0..4095
+            int pot = analogica_get(POT1_GPIO);             // 0..4095
             pwm_set_duty(LED_PWM_GPIO, pot * 100.0f / 4095); // pote → brillo (0..100 %)
             xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(20));
         }
@@ -917,8 +917,9 @@ static void tarea_espejo(void *arg)
 }
 ```
 
-> `analogica_get()` toma 5 lecturas separadas 10 ms y promedia las 3 del medio (tarda 50 ms): en una tarea de
-> 20 ms usá `analogica_get_crudo()` (una sola lectura) y filtrá vos (patrón C).
+> `analogica_get()` hace una sola lectura sin filtrar y no tarda nada. El filtro lo hacés vos en la tarea (patrón C,
+> o la media móvil de `task_adc` en `main.c`). Leé el ADC desde **una sola tarea**: si dos leen a la vez, una puede
+> devolver -1. Las demás leen el valor ya filtrado de la global, con su mutex.
 
 Bonus: para cambiar el modo desde la web, un handler `/modo?m=espejo` que llame a
 `cambiar_modo()`, igual que el `led_get()` de ejemplo en `GUIA.md` sección 5.
@@ -981,7 +982,7 @@ static void tarea_muestreo(void *arg)
     TickType_t ultimo = xTaskGetTickCount();
     for (;;) {
         xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(20));    // 50 Hz exactos
-        int crudo = analogica_get_crudo(POT1_GPIO);     // una lectura (0..4095)
+        int crudo = analogica_get(POT1_GPIO);           // una lectura (0..4095)
         filtrado = 0.8f * filtrado + 0.2f * crudo;      // filtro pasa bajos (EMA)
         xQueueOverwrite(s_pot_filtrado, &filtrado);     // el consumidor ve siempre el último
     }
@@ -1032,7 +1033,7 @@ static void tarea_grabar(void *arg)
             xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(50));
             int64_t ahora = esp_timer_get_time();
             muestra_t m = { .dt_ms = (ahora - antes) / 1000,
-                            .valor = analogica_get_crudo(POT1_GPIO) * 100.0f / 4095 };
+                            .valor = analogica_get(POT1_GPIO) * 100.0f / 4095 };
             antes = ahora;
             xSemaphoreTake(s_mutex_grab, portMAX_DELAY);
             s_grabacion[s_cant_grabada++] = m;
@@ -1135,7 +1136,7 @@ static void tarea_alarma(void *arg)
     TickType_t ultimo = xTaskGetTickCount();
     for (;;) {
         xTaskDelayUntil(&ultimo, pdMS_TO_TICKS(100));
-        int pot = analogica_get(POT1_GPIO);         // 5 muestras, sin extremos (tarda 50 ms, entra en 100)
+        int pot = analogica_get(POT1_GPIO);         // una lectura (0..4095)
         int umbral = s_umbral;                      // copiarlo una vez por vuelta
         if (!alarma && pot > umbral + 100) {        // entra por arriba de umbral + 100
             alarma = true;

@@ -127,7 +127,7 @@ void task_umbral(void *pvParam)
 {
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 	while (1) {
-		int pot = analogica_get(POT1_GPIO);			// lento (50 ms): fuera del mutex
+		int pot = analogica_get(POT1_GPIO);			// una lectura, fuera del mutex
 
 		xSemaphoreTake(mutexConfig, portMAX_DELAY);
 		int umbral = config.umbral;					// copia rapida

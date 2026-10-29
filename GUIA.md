@@ -19,7 +19,7 @@ Para FreeRTOS (tareas, colas, mutex, event groups...) ver `GUIA_FREERTOS.md`; pa
                     ├─ HTTP :80  ── web.c ── archivos de www/ (index.html, wifi.html, estilos.css)
                     │                     └─ tus handlers en main.c (/wifi, /destino)
                     │
-                    ├─ TCP :1234 (servidor) ── task_tcp ── telnet ── microrl ──┐
+                    ├─ TCP :1234 (servidor) ── task_tcp ──────────── microrl ──┐
                     │                                                          ├─► execute() (main.c)
                     ├─ UART0 (USB, COM6) ──── task_uart ──────────── microrl ──┘   (si CONSOLA_UART)
                     │
@@ -42,7 +42,7 @@ Con `0` el código de ese módulo no se compila (queda la consola TCP y la web s
 |---|---|---|
 | `hardware.h` | pines de la placa y tablas `leds[]`, `switches[]`, `pots[]` | — |
 | `iodigital` | GPIO | `salida_init/set/get`, `entrada_init/get`, `entrada_interrupcion` |
-| `ianalogica` | ADC1 | `analogica_init`, `analogica_get` (5 muestras, descarta la menor y la mayor y promedia el resto), `analogica_get_crudo` (1 lectura) |
+| `ianalogica` | ADC1 | `analogica_init`, `analogica_get` (1 lectura sin filtrar, 0..4095 o -1). Leer desde una sola tarea; el filtro va en `main.c` (media móvil en `task_adc`) |
 | `pwm` | PWM (MCPWM) | `pwm_init`, `pwm_set_duty` (0–100 %), `pwm_set_pulso_us` (servos) |
 | `rgb` | LED RGB integrado (WS2812, GPIO48) con el componente `led_strip` | `rgb_init`, `rgb_set(r, g, b)` (0–255; con 5–30 alcanza) |
 | `temporizador` | interrupción periódica (gptimer) | `temporizador_init` |
@@ -50,7 +50,7 @@ Con `0` el código de ese módulo no se compila (queda la consola TCP y la web s
 | `wifi` | AP + STA | `wifi_init`, `wifi_sta_conectar` |
 | `web` | servidor HTTP + archivos de `www/` | `web_init`, `web_parametro`, `web_leer_cuerpo`, `web_campo` |
 | `tcp` | sockets TCP | servidor: `tcp_servidor`, `tcp_aceptar`; cliente: `tcp_conectar`; los dos: `tcp_recibir`, `tcp_enviar` |
-| `telnet` | que MobaXterm (Telnet) no duplique el eco | `telnet_inicio`, `telnet_filtrar` |
+| `telnet` | solo para clientes en modo *Telnet*. **No se usa**: la consola TCP va en *Raw* (sección 4) | `telnet_inicio`, `telnet_filtrar` |
 | `microrl` + `config.h` | línea de comandos (la del profe) | `microrl_init`, `microrl_set_execute_callback`, `microrl_insert_char` |
 | `uner` | tramas del protocolo UNER | `uner_armar`, `uner_rx_init`, `uner_rx_byte`, `uner_escribir16`, `uner_escribir32`, `uner_escribir_float`, `uner_leer16`, `uner_leer32`, `uner_leer_float` |
 | **`main.c`** | **todo tu programa** | `app_main`, `task_tcp`, `task_uart`, `task_uner`, `execute`, `enviar`, `procesar_uner`, `uner_mandar`, handlers web |
@@ -157,18 +157,25 @@ vino el comando.
 
 ### Conectarse
 
-- **TCP:** MobaXterm → *Session → Telnet* → la IP del ESP32 → puerto `1234`. Un cliente a la vez.
-- **UART** (`CONSOLA_UART 1`): opción A (la que viene), UART0 por el mismo USB: MobaXterm →
+- **TCP (Raw, sin telnet):** PuTTY → *Session* → Connection type **Raw** → la IP del ESP32 → puerto
+  `1234`. En *Terminal*: **Local echo: Force off** y **Local line editing: Force off** (el eco y la
+  edición los hace microrl). Guardala en *Saved Sessions* para no configurarla cada vez. Un
+  cliente a la vez.
+- **UART** (`CONSOLA_UART 1`): opción A (la que viene), UART0 por el mismo USB: PuTTY →
   *Serial* → COM6 a 115200, o `idf.py -p COM6 monitor`. Los logs (`ESP_LOG`, `printf`) salen
   mezclados con la consola. Opción B: UART1 en GPIO 17/18 con un CP2102 aparte (otro COM, sin
   logs); se elige en las constantes `UART_CONSOLA` de `main.c`.
 
-Mientras algo tenga el COM6 abierto (monitor, MobaXterm), **no se puede flashear**.
+Mientras algo tenga el COM6 abierto (monitor, PuTTY), **no se puede flashear**.
+
+> `practicas/mainCompleto.c` todavía es la versión con Telnet: en `task_tcp` llama a
+> `telnet_inicio()` al conectarse y a `telnet_filtrar()` después de cada `tcp_recibir()`. Para
+> usarlo en *Raw*, borrá esas dos líneas (si quedan, al conectar aparecen caracteres raros).
 
 ### El camino de una tecla
 
 ```
-task_tcp:  tcp_recibir() → telnet_filtrar() ─┐
+task_tcp:  tcp_recibir() ────────────────────┐
 task_uart: uart_read_bytes() ────────────────┤  toma mutexConsola y pone salida = enviar_tcp / enviar_uart
                                              ▼
                               microrl_insert_char()  (eco, edición, historial)
@@ -451,7 +458,7 @@ esp_err_t historial_get(httpd_req_t *req)
 	for (int i = 0; i < 3; i++) {
 		cJSON *item = cJSON_CreateObject();
 		cJSON_AddNumberToObject(item, "n", i);
-		cJSON_AddNumberToObject(item, "pot1", analogica_get_crudo(POT1_GPIO));
+		cJSON_AddNumberToObject(item, "pot1", analogica_get(POT1_GPIO));
 		cJSON_AddItemToArray(lista, item);                          // el arreglo se adueña del item
 	}
 	return responder_json(req, lista);
@@ -846,7 +853,7 @@ void task_muestreo(void *pvParam)
 {
 	while (1) {
 		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);    // espera el aviso del timer
-		int pot = analogica_get_crudo(POT1_GPIO);   // el ADC se lee acá, no en la ISR
+		int pot = analogica_get(POT1_GPIO);         // el ADC se lee acá, no en la ISR
 		// ...
 	}
 }
@@ -973,11 +980,12 @@ tareas y dos buffers; aunque el destino también use el puerto 1234, no chocan (
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| `idf.py flash` falla en "Serial port COM6" | el monitor o MobaXterm tiene el COM6 abierto | cerrarlo y volver a flashear |
+| `idf.py flash` falla en "Serial port COM6" | el monitor o PuTTY tiene el COM6 abierto | cerrarlo y volver a flashear |
 | La página no carga | el ESP32 cambió de IP o no está conectado | ver la IP en el monitor, o usar el AP (`192.168.4.1`) |
 | Cambié el HTML y no se ve | `www/` se graba al flashear | `idf.py -p COM6 flash`; en el navegador Ctrl+F5 |
-| MobaXterm no muestra nada | ya hay otro cliente TCP conectado | cerrar el otro (un cliente a la vez; uno colgado se libera en ~11 s) |
-| MobaXterm muestra todo doble | sesión *Raw* en vez de *Telnet* | usar *Telnet* |
+| PuTTY no muestra nada | ya hay otro cliente TCP conectado | cerrar el otro (un cliente a la vez; uno colgado se libera en ~11 s) |
+| PuTTY muestra cada letra doble o no anda el Backspace | *Local echo* o *Local line editing* no están en *Force off* | *Terminal* → ponerlos en *Force off* |
+| Al conectar por TCP aparecen caracteres raros | quedó `telnet_inicio()` en el código (manda bytes 255 que en *Raw* se ven) | borrar `telnet_inicio()` y `telnet_filtrar()` |
 | Un comando no responde | `execute()` no llamó a `enviar()` en ese camino | revisar todos los `if` |
 | `Guru Meditation` al usar una cola | la cola se usó antes de crearla | crear colas/semáforos antes de las tareas e interrupciones |
 | `stack overflow in task` | stack chico (`printf`, `snprintf`) | 4096 o más |
@@ -999,7 +1007,7 @@ tareas y dos buffers; aunque el destino también use el puerto 1234, no chocan (
 | Palabras por comando | 8 | `_COMMAND_TOKEN_NMB` en `config.h` |
 | Navegadores a la vez | 4 | `WEB_MAX_CONEXIONES` en `web.c` |
 | Timers de hardware | 4 | `TEMPORIZADOR_MAX` |
-| Muestras que toma `analogica_get` (descarta la menor y la mayor) | 5 (tarda 50 ms, minimo 3) | `ANALOGICA_MUESTRAS` en `ianalogica.h` |
+| Muestras de la media móvil de los potes | 10 cada 20 ms (últimos 200 ms) | `MEDIA_N` y `PERIODO_ADC_MS` en `main.c` |
 | Carga de una trama UNER | 64 bytes | `UNER_MAX_CARGA` en `uner.h` |
 | Tramas UNER esperando para salir | 10 | `xQueueCreate(10, ...)` de `colaUner` en `main.c` |
 | Espera de `tcp_conectar` | 3 s | `CONECTAR_ESPERA_MS` en `tcp.c` |

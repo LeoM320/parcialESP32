@@ -49,4 +49,10 @@ esp_err_t wifi_sta_conectar(const char *ssid, const char *pass);
  */
 uint32_t wifi_ip_ap(void);
 
+/**
+ * @brief IP del ESP32 en la red del router (STA), o 0 si no esta conectado.
+ * @return IPv4 en formato lwIP, o 0 si la STA no tiene IP.
+ */
+uint32_t wifi_ip_sta(void);
+
 #endif /* WIFI_H_ */

@@ -4,7 +4,7 @@ ParcialESP32
 Plantilla para el parcial de Sistemas Embebidos (UNER) en un ESP32-S3 con ESP-IDF v6.0.2 y
 FreeRTOS: librerías finitas en `main/` y todo el programa a la vista en `main/main.c`.
 
-- Consola TCP (MobaXterm, puerto 1234) y por UART con microrl.
+- Consola TCP (PuTTY en modo Raw, puerto 1234) y por UART con microrl.
 - Página web desde `www/` con handlers en JSON (cJSON).
 - Cliente TCP con protocolo UNER.
 - NVS, GPIO, ADC, PWM, LED RGB y timer de hardware.

@@ -158,7 +158,7 @@ Muestra **el orden de los mensajes** entre participantes. El tiempo corre **haci
 
 ```
   Usuario         task_tcp          microrl            execute()          iodigital
- (MobaXterm)         │                 │                   │                  │
+   (PuTTY)           │                 │                   │                  │
      │ "led 2 on\r"  │                 │                   │                  │
      │──────────────▷│                 │                   │                  │
      │               █ insert_char()   │                   │                  │
